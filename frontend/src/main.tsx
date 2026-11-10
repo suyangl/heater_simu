@@ -124,8 +124,8 @@ function App() {
   const isPrediction=!draft&&!cfdResult&&!!prediction?.field;
   useEffect(()=>{void request('/api/surrogate/artifact').catch(()=>request('/surrogate/s1-v1.json')).then(data=>setTable(prepare(data))).catch(()=>setTableError(t("预估表尚不可用，请精算")));},[]);
   function invalidate() {setResult(null);setJobId(null);setProgress(0);setLog('');setStatus(t("输入已更新"));setError('');setTiming(null);setWarning('');window.history.replaceState(null,'',window.location.pathname);}
-  function change(next:Project) {setHistory(h=>commit(h,next));invalidate();}
-  function travel(direction:'undo'|'redo') {setDraft(null);setHistory(h=>direction==='undo'?undo(h):redo(h));invalidate();}
+  function change(next:Project) {if(JSON.stringify(next)===JSON.stringify(history.present))return;setHistory(h=>commit(h,next));invalidate();}
+  function travel(direction:'undo'|'redo') {if(direction==='undo'?!history.past.length:!history.future.length)return;setDraft(null);setHistory(h=>direction==='undo'?undo(h):redo(h));invalidate();}
   function selectPlan(id:Selection|null) {
     setSelection(id);
     if(id)document.querySelector<HTMLElement>('[data-plan-card="'+id+'"]')?.scrollIntoView({block:'nearest',behavior:'smooth'});

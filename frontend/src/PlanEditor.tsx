@@ -32,7 +32,7 @@ export function PlanEditor({project:p,selected,disabled,canUndo,canRedo,onSelect
   };
   const move=(e:ReactPointerEvent)=>{
     const d=drag.current;if(!d)return;
-    const pt=point(e),step=snapping&&!e.altKey?.05:0,dx=pt.x-d.point.x,dy=pt.y-d.point.y;
+    const pt=point(e),step=snapping&&!e.altKey ? .05 : 0,dx=pt.x-d.point.x,dy=pt.y-d.point.y;
     const i=Number(d.id.split('-')[1]);let next=d.start;
     if(d.id==='room')next=resizeRoom(d.start,d.mode==='north'?d.start.room.length:pt.x,d.mode==='east'?d.start.room.width:pt.y,step);
     else if(d.id==='heater')next=placeHeater(d.start,pt,step,d.grab);
@@ -100,6 +100,8 @@ export function PlanEditor({project:p,selected,disabled,canUndo,canRedo,onSelect
           const n=w==='N',s=w==='S',e=w==='E';
           return <line key={w} x1={n||s?0:e?p.room.length:0} y1={n?p.room.width:0} x2={n||s?p.room.length:e?p.room.length:0} y2={s?0:p.room.width} stroke={exteriorOf(p).includes(w)?'#254b58':'#a7bdc6'} strokeWidth=".045" pointerEvents="none"/>;
         })}
+        <rect data-room-edge="east" x={p.room.length-.04} y={.15} width=".08" height={Math.max(.01,p.room.width-.3)} fill="transparent" cursor="ew-resize" onPointerDown={e=>start(e,'room','east')}/>
+        <rect data-room-edge="north" x={.15} y={p.room.width-.04} width={Math.max(.01,p.room.length-.3)} height=".08" fill="transparent" cursor="ns-resize" onPointerDown={e=>start(e,'room','north')}/>
         {p.furniture.map((b,i)=>{
           const id:Selection=`furniture-${i}`;
           return <g key={id}><rect data-object={id} className={style(id)} x={b.x} y={b.y} width={Math.max(.01,b.l)} height={Math.max(.01,b.w)} fill="#d2e8e2" stroke="#2e7568" strokeWidth=".025" onPointerDown={e=>start(e,id)}/>
@@ -112,8 +114,6 @@ export function PlanEditor({project:p,selected,disabled,canUndo,canRedo,onSelect
             {selected===id&&<>{handle(shape.x,shape.y,id,'start')}{handle(end.x,end.y,id,'end')}</>}</g>;
         })}
         {(()=>{const b=heaterBox(p);return <rect data-object="heater" className={style('heater')} x={b.x} y={b.y} width={Math.max(.01,b.l)} height={Math.max(.01,b.w)} fill="#ed9854" stroke="#8c4d1c" strokeWidth=".025" onPointerDown={e=>start(e,'heater')}/>;})()}
-        <rect data-room-edge="east" x={p.room.length-.04} y={.15} width=".08" height={Math.max(.01,p.room.width-.3)} fill="transparent" cursor="ew-resize" onPointerDown={e=>start(e,'room','east')}/>
-        <rect data-room-edge="north" x={.15} y={p.room.width-.04} width={Math.max(.01,p.room.length-.3)} height=".08" fill="transparent" cursor="ns-resize" onPointerDown={e=>start(e,'room','north')}/>
         {handle(p.room.length,p.room.width,'room','corner')}
         <text transform={`translate(${p.room.length/2},-.25) scale(1,-1)`} textAnchor="middle" fontSize=".13" fill="#274b59">{t('plan.x')}</text>
         <text transform={`translate(${p.room.length/2},${p.room.width+.25}) scale(1,-1)`} textAnchor="middle" fontSize=".13" fill="#274b59">{t('plan.north')}</text>

@@ -139,6 +139,10 @@ trainer 调用与 settled 算法、阈值、DoE 均未改变；正在运行的 t
 
 目录：`api/app` 模型、网格/字典生成、队列与路由；`worker` OpenFOAM 运行与重采样；`frontend` 中文 3D 编辑器；`scripts/e2e.sh` 端到端验收。设计依据见 [PRD](docs/PRD.md)。
 
+### 2D plan editor (M2 part 3)
+
+The **2D room plan / 二维房间平面图** above the 3D view edits the same project as the numeric sidebar. Drag room east/north edges to resize, furniture to move, selected corners to resize, and opening ends to change widths. Furniture rotates in axis-aligned 90° steps; the heater can be dragged onto another wall. The metre grid snaps to 5 cm by default (toggle off or hold Alt). Arrows nudge, Delete removes selected furniture/openings, and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo/redo; each drag is one history entry. Red outlines explain invalid API geometry; amber warns of furniture within 0.3 m in front of the heater. 3D geometry updates during a drag; S1 and seasonal estimates update only on release. No CFD run is automatically submitted. Merely opening/selecting objects does not normalize or rewrite legacy project JSON.
+
 ### Seasonal electricity estimate (M2 part 1)
 
 Below the temperature results, open **Electricity cost / 电费**. Add, name and compare Base, HP/HC, Tempo or custom 24×7 profiles. Enter every energy rate and the monthly subscription yourself (including an explicit 0 for a free subscription); missing prices leave costs unavailable without disabling temperature or energy results. HC boundaries use whole hours, may cross midnight and allow up to two periods. Custom rates have an explicit user-entered bulk-fill action. Profiles, active selection and climate/schedule assumptions persist in browser localStorage (`heatsimu.billing.v1`); there is currently no project JSON export/import UI.
