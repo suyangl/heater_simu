@@ -6,7 +6,8 @@ def solver_project(data):
     if not isinstance(data, dict) or 'furniture' not in data:
         return data
     return {**data, 'furniture': [
-        {**box, 'kind': KINDS.get(box['kind'], box['kind'])} if isinstance(box, dict) and 'kind' in box else box
+        {**box, 'kind': KINDS.get(box['kind'], box['kind'])}
+        if isinstance(box, dict) and isinstance(box.get('kind'), str) else box
         for box in data.get('furniture', [])
     ]} if isinstance(data.get('furniture', []), list) else data
 

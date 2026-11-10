@@ -47,5 +47,6 @@ def test_saved_kind_keys_and_unchanged_solver_case(tmp_path, monkeypatch):
             assert (path/field.relative_to(reference)).read_bytes() == field.read_bytes()
     (path/'user_project.json').unlink()
     assert client.get('/api/jobs/'+job).json()['project']['furniture'][0]['kind'] == 'bed'
-    data['furniture'][0]['kind'] = 'invalid'
-    assert client.post('/api/simulate', json=data).status_code == 422
+    for invalid in ('invalid', '', [], {}, 1, True):
+        data['furniture'][0]['kind'] = invalid
+        assert client.post('/api/simulate', json=data).status_code == 422
