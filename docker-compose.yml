@@ -1,0 +1,29 @@
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - api
+    mem_limit: 128m
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    volumes:
+      - heater_data:/data
+    mem_limit: 384m
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    volumes:
+      - heater_data:/data
+    environment:
+      MAX_PARALLEL_JOBS: "1"
+      OPENFOAM_NPROCS: "${OPENFOAM_NPROCS:-2}"
+    cpus: 2
+    mem_limit: 3g
+volumes:
+  heater_data:
+    name: heater_data
