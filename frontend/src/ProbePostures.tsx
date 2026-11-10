@@ -3,7 +3,7 @@ import {useFrame} from '@react-three/fiber';
 import type {ThreeEvent} from '@react-three/fiber';
 import {Billboard,RoundedBox} from '@react-three/drei';
 import * as THREE from 'three';
-import {breathingScale,probePose} from './probe';
+import {breathingScale,probePose,sittingHeadRadius} from './probe';
 
 type Point=[number,number,number];
 type Events={onPointerDown:(e:ThreeEvent<PointerEvent>)=>void;onPointerMove:(e:ThreeEvent<PointerEvent>)=>void;
@@ -60,7 +60,7 @@ export function LyingFigure({pose,events}:{pose:ReturnType<typeof probePose>;eve
 }
 export function SittingFigure({pose,events}:{pose:ReturnType<typeof probePose>;events:Events}) {
   const seat=pose.seat,head=seat+.68,knee=pose.support?seat:seat+.28,ankle=Math.max(.1,seat-.48);
-  return <group position={[pose.x,0,pose.y]} rotation={[0,pose.yaw,0]} {...events}>
+  return <group position={[pose.x,seat,pose.y]} rotation={[0,pose.yaw,0]} scale={pose.sittingScale} {...events}><group position={[0,-seat,0]}>
     <Limb a={[0,seat,0]} b={[0,seat+.55,0]}/>
     {[-1,1].map(side=><group key={side}>
       <Limb a={[side*.085,seat,0]} b={[side*.085,knee,.36]}/>
@@ -71,9 +71,9 @@ export function SittingFigure({pose,events}:{pose:ReturnType<typeof probePose>;e
     </group>)}
     <Billboard position={[0,head,0]}>
       <mesh><sphereGeometry args={[.14,24,16]}/><meshBasicMaterial color="#F5C9A0"/></mesh>
-      <mesh scale={(.14+.056)/.14}><sphereGeometry args={[.14,24,16]}/><meshBasicMaterial color="#000" side={THREE.BackSide}/></mesh>
+      <mesh scale={sittingHeadRadius/.14}><sphereGeometry args={[.14,24,16]}/><meshBasicMaterial color="#000" side={THREE.BackSide}/></mesh>
       {[-1,1].map(side=><mesh key={side} position={[side*.046,.025,.13]}><sphereGeometry args={[.012,8,8]}/><meshBasicMaterial color="#000"/></mesh>)}
       <mesh position={[0,-.025,.136]} rotation={[0,0,Math.PI]}><torusGeometry args={[.042,.007,8,20,Math.PI]}/><meshBasicMaterial color="#000"/></mesh>
     </Billboard>
-  </group>;
+  </group></group>;
 }
