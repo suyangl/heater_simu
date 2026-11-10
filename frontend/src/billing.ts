@@ -59,7 +59,8 @@ export function simulateSeason(input:{ua:number;area:number;ratedPower:number;in
     }
   }
   const capacity=(input.capacityPerArea??CAPACITY[inertia])*area,lossFraction=-Math.expm1(-ua*3600/capacity);
-  let indoor=(days[0].weekday>=5?schedule.weekends:schedule.weekdays)[0]?schedule.comfort:schedule.eco;
+  // Common warm start for eco/pattern comparisons; no scenario-specific stored heat.
+  let indoor=schedule.comfort;
   let total=0,comfortHours=0,comfortable=0;
   for(let day=0;day<days.length;day++)for(let hour=0;hour<24;hour++){
     const comfort=(days[day].weekday>=5?schedule.weekends:schedule.weekdays)[hour];
@@ -143,7 +144,7 @@ export function compareTariffs(consumption:Consumption,profiles:Profile[],ratedP
   const minimum=available.length?Math.min(...available):null;
   return results.map(r=>({...r,cheapest:r.total!==null&&r.total===minimum}));
 }
-export type BillingSettings = {version:1;profiles:Profile[];active:string;climate:Climate;schedule:Schedule;inertia:Inertia;capacityPerArea:number|null;followProject:boolean};
+export type BillingSettings = {version:1;profiles:Profile[];active:string;climate:Climate;schedule:Schedule;inertia:Inertia;capacityPerArea:number|null;followProject:boolean;envelope?:{windowFactor:number;achFactor:number}};
 export const BILLING_STORAGE = 'heatsimu.billing.v1';
 export function restoreSettings(raw:string|null,comfort:number):BillingSettings {
   const fallback:BillingSettings={version:1,profiles:[newProfile('base','', 'base')],active:'base',
@@ -160,7 +161,9 @@ export function restoreSettings(raw:string|null,comfort:number):BillingSettings 
       Array.isArray(p.grid)&&p.grid.length===7&&p.grid.every(row=>Array.isArray(row)&&row.length===24&&row.every(storedPrice));
     if(s?.version!==1||!Array.isArray(s.profiles)||!s.profiles.length||!s.profiles.every(validProfile)||
         new Set(s.profiles.map(p=>p.id)).size!==s.profiles.length||!s.profiles.some(p=>p.id===s.active)||
-        !Object.hasOwn(CAPACITY,s.inertia)||(s.capacityPerArea!==null&&!finite(s.capacityPerArea))||typeof s.followProject!=='boolean'||!finite(s.climate?.amplitude)||
+        !Object.hasOwn(CAPACITY,s.inertia)||(s.capacityPerArea!==null&&!finite(s.capacityPerArea))||
+        (s.envelope!==undefined&&![s.envelope.windowFactor,s.envelope.achFactor].every(v=>finite(v)&&v>0&&v<=1))||
+        typeof s.followProject!=='boolean'||!finite(s.climate?.amplitude)||
         !Array.isArray(s.climate.months)||s.climate.months.length!==7||
         new Set(s.climate.months.map(m=>m.month)).size!==7||
         !s.climate.months.every(m=>SEASON_MONTHS.includes(m.month)&&finite(m.mean)&&typeof m.enabled==='boolean')||

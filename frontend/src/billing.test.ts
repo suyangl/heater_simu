@@ -1,9 +1,76 @@
 import {describe,it,expect} from 'vitest';
-import {assignTempo,calibratedUA,compareTariffs,defaultClimate,defaultSchedule,evaluateTariff,isOffPeak,newProfile,outdoorTemperature,rateAt,restoreSettings,simulateSeason,validPeriods} from './billing';
+import {CAPACITY,Consumption,Schedule,assignTempo,calibratedUA,compareTariffs,defaultClimate,defaultSchedule,evaluateTariff,isOffPeak,newProfile,outdoorTemperature,rateAt,restoreSettings,simulateSeason,validPeriods} from './billing';
 const input=()=>({ua:40,area:20,ratedPower:2000,inertia:'medium' as const,
   climate:{months:defaultClimate().months.map(m=>({...m,mean:5})),amplitude:0},
   schedule:{...defaultSchedule(20),eco:20,weekdays:Array(24).fill(true),weekends:Array(24).fill(true)}});
 const base=()=>({...newProfile('base','Base'),base:.2,subscription:10,kva:6});
+function shortened(schedule:Schedule):Schedule {
+  const result=structuredClone(schedule);
+  for(const pattern of ['weekdays','weekends'] as const){
+    const selected=result[pattern].flatMap((on,h)=>on?[h]:[]);
+    result[pattern]=result[pattern].map((on,h)=>on&&h!==selected[0]&&h!==selected.at(-1));
+  }
+  return result;
+}
+function scheduleInput(ua=5.916297293170128,comfort=18){
+  return {ua,area:10.5,ratedPower:1500,inertia:'medium' as const,climate:defaultClimate(),schedule:defaultSchedule(comfort)};
+}
+function hpHcBreakdown(consumption:Consumption){
+  return consumption.hours.reduce((periods,h)=>{
+    // Independent explicit classification for the fixed 22:00–06:00 test tariff.
+    const period=h.hour>=22||h.hour<6?'hc':'hp';
+    periods[period].kwh+=h.kwh;periods[period].euros+=h.kwh*(period==='hc'?.12:.25);
+    return periods;
+  },{hp:{kwh:0,euros:0},hc:{kwh:0,euros:0}});
+}
+describe('fair RC schedule comparisons',()=>{
+  it('does not give lower eco settings a colder initial thermal store (DPE A 19°C and C 18°C regressions)',()=>{
+    for(const [ua,comfort,eco] of [[3.674783042328619,19,14],[5.916297293170128,18,15]]){
+      const i=scheduleInput(ua,comfort),baseline=simulateSeason(i);
+      const lower=simulateSeason({...i,schedule:{...i.schedule,eco}});
+      const expectedFirst=comfort+(baseline.hours[0].outdoor-comfort)*(-Math.expm1(-ua*3600/(CAPACITY.medium*10.5)));
+      expect(baseline.hours[0].indoor).toBeCloseTo(expectedFirst,10);
+      expect(lower.hours[0].indoor).toBeCloseTo(expectedFirst,10);
+      expect(lower.kwh).toBeLessThanOrEqual(baseline.kwh+1e-8);
+      expect(lower.hours.every((h,n)=>h.indoor<=baseline.hours[n].indoor+1e-8)).toBe(true);
+    }
+  });
+  it('lowering eco never increases kWh across inertias and UA, including rated-power clipping',()=>{
+    for(const inertia of ['light','medium','heavy'] as const)for(const ua of [.5,3.674783042328619,5.916297293170128,40,200]){
+      const i={...scheduleInput(ua),inertia},baseline=simulateSeason(i);
+      for(const eco of [15,14]){
+        const lower=simulateSeason({...i,schedule:{...i.schedule,eco}});
+        expect(lower.kwh).toBeLessThanOrEqual(baseline.kwh+1e-8);
+        expect(lower.hours.every((h,n)=>h.indoor<=baseline.hours[n].indoor+1e-8)).toBe(true);
+      }
+    }
+  });
+  it('shortening comfort hours cannot increase kWh or Base cost',()=>{
+    for(const ua of [3.674783042328619,5.916297293170128,40]){
+      const i=scheduleInput(ua),baseline=simulateSeason(i),short=simulateSeason({...i,schedule:shortened(i.schedule)});
+      const b=evaluateTariff(baseline,base(),1500),s=evaluateTariff(short,base(),1500);
+      expect(short.kwh).toBeLessThanOrEqual(baseline.kwh+1e-8);
+      expect(s.total!).toBeLessThanOrEqual(b.total!+1e-8);
+      expect(b.total!-s.total!).toBeCloseTo((baseline.kwh-short.kwh)*.2,8);
+    }
+  });
+  it('accounts explicitly for real HP/HC shifting: shorter comfort can save kWh but cost more',()=>{
+    const i=scheduleInput(),baseline=simulateSeason(i),short=simulateSeason({...i,schedule:shortened(i.schedule)});
+    const profile={...newProfile('hp','HPHC','hphc'),hp:.25,hc:.12,subscription:12};
+    const b=evaluateTariff(baseline,profile,1500),s=evaluateTariff(short,profile,1500);
+    const bp=hpHcBreakdown(baseline),sp=hpHcBreakdown(short);
+    const hpSaved=bp.hp.kwh-sp.hp.kwh,hcSaved=bp.hc.kwh-sp.hc.kwh;
+    expect(baseline.kwh).toBeCloseTo(bp.hp.kwh+bp.hc.kwh,8);
+    expect(short.kwh).toBeCloseTo(sp.hp.kwh+sp.hc.kwh,8);
+    expect(b.energy!).toBeCloseTo(bp.hp.euros+bp.hc.euros,8);
+    expect(s.energy!).toBeCloseTo(sp.hp.euros+sp.hc.euros,8);
+    expect(baseline.kwh-short.kwh).toBeCloseTo(hpSaved+hcSaved,8);
+    expect(b.total!-s.total!).toBeCloseTo(hpSaved*.25+hcSaved*.12,8);
+    expect(hpSaved).toBeLessThan(0);expect(hcSaved).toBeGreaterThan(0);
+    expect(baseline.kwh-short.kwh).toBeGreaterThan(0);
+    expect(b.total!-s.total!).toBeLessThan(0);
+  });
+});
 describe('seasonal RC consumption',()=>{
   it('balances steady heating and exactly integrates a constant outdoor / setpoint case',()=>{
     const result=simulateSeason(input());

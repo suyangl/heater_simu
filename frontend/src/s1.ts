@@ -36,14 +36,18 @@ function geometry(p:Project) {
     furniture:p.furniture.map(({kind:_,name:__,...box})=>box).sort((a,b)=>a.x-b.x||a.y-b.y||a.z-b.z)};
 }
 export type Prediction = ReturnType<typeof predict>;
-export function predict(p:Project,table:Table,language:Language='zh') {
-  const t=(key:string)=>translate(key,language);
-  const started=performance.now();
-  const unavailable=(reason:string)=>({confidence:t("低"),reason,field:null,elapsed_ms:performance.now()-started,extrapolated:false});
+export function matchPreset(p:Project,table:Table) {
   let match:{template:string;position:string}|undefined;
   for(const [template,positions] of Object.entries(table.presets))for(const [position,prototype] of Object.entries(positions)) {
     if(close(geometry(prototype),geometry(p),table.tolerance_m))match={template,position};
   }
+  return match;
+}
+export function predict(p:Project,table:Table,language:Language='zh') {
+  const t=(key:string)=>translate(key,language);
+  const started=performance.now();
+  const unavailable=(reason:string)=>({confidence:t("低"),reason,field:null,elapsed_ms:performance.now()-started,extrapolated:false});
+  const match=matchPreset(p,table);
   if(!match)return unavailable(t("房间、家具、窗户或暖器位置不匹配模板；无可用预估，请精算"));
   const rise=p.heater.setpoint_c-p.outdoor_temp,analytic=ua(p,table);
   if(!(rise>0)||!Number.isFinite(analytic)||!(p.heater.power_w>0))return unavailable(t("仅支持有效的供热工况（设定温度高于室外）；请精算"));

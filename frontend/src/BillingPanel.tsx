@@ -1,10 +1,11 @@
 import {useEffect,useMemo,useState} from 'react';
 import {BILLING_STORAGE,CAPACITY,Colour,Inertia,Price,Profile,TariffKind,TariffPeriod,calibratedUA,compareTariffs,newProfile,restoreSettings,simulateSeason} from './billing';
-import {Project,Table,ua} from './s1';
+import {Project,Table} from './s1';
+import {analyticBreakdown,analyticUA} from './envelope';
+import {PlannerPanel} from './PlannerPanel';
 import {useLanguage} from './Language';
 import './billing.css';
 
-const FALLBACK_AXES:Table['axes']={templates:[],positions:[],u_values:{A:[.15,.8],B:[.25,1.1],C:[.35,1.4],D:[.6,2],E:[1,2.8],F:[1.5,3.5],G:[2.2,5]},ach:{A:.3,B:.4,C:.5,D:.6,E:.7,F:.9,G:1.2}};
 const COLOURS:Colour[]=['blue','white','red'];
 const PERIOD_COLOUR:Record<TariffPeriod,string>={base:'#087f75',hp:'#98540b',hc:'#225ca8',custom:'#7550a0',
   blue_hp:'#17458b',blue_hc:'#5a87b8',white_hp:'#63676a',white_hc:'#9ba5ad',red_hp:'#af243b',red_hc:'#df7181'};
@@ -12,7 +13,7 @@ const priceValue=(value:string):Price=>value.trim()===''?null:Number(value);
 function PriceInput({label,value,onChange}:{label:string;value:Price;onChange:(v:Price)=>void}) {
   return <label>{label}<input type="number" min="0" step="0.001" value={value??''} onChange={e=>onChange(priceValue(e.target.value))}/></label>;
 }
-export function BillingPanel({project,table,result,source}:{project:Project;table:Table|null;
+export function BillingPanel({project,table,result,source,onProjectChange}:{project:Project;table:Table|null;onProjectChange:(p:Project)=>void;
   result:{kpi:{heat_loss_w:number;not_settled?:boolean}}|null;source:'CFD'|'S1'|'analytic'}) {
   const {t,language}=useLanguage();
   const [settings,setSettings]=useState(()=>{
@@ -24,7 +25,10 @@ export function BillingPanel({project,table,result,source}:{project:Project;tabl
   const profile=settings.profiles.find(p=>p.id===settings.active)!;
   const nameOf=(p:Profile)=>p.name||t('billing.unnamed',{n:settings.profiles.indexOf(p)+1});
   const update=(patch:Partial<Profile>)=>setSettings(s=>({...s,profiles:s.profiles.map(p=>p.id===s.active?{...p,...patch}:p)}));
-  const effective=calibratedUA(result?.kpi.heat_loss_w,project.heater.setpoint_c,project.outdoor_temp,ua(project,table??{axes:FALLBACK_AXES}));
+  const analytic=analyticUA(project,table);
+  const rawUA=calibratedUA(result?.kpi.heat_loss_w,project.heater.setpoint_c,project.outdoor_temp,analytic);
+  const effective=rawUA*analyticUA(project,table,settings.envelope)/analytic;
+  const plannerInput=useMemo(()=>({project,settings,calibratedUA:rawUA,analytic:analyticBreakdown(project,table),table}),[project,settings,rawUA,table]);
   const calibrated=!!result&&Number.isFinite(result.kpi.heat_loss_w)&&result.kpi.heat_loss_w>0&&project.heater.setpoint_c>project.outdoor_temp;
   const comfort=settings.followProject?project.heater.setpoint_c:settings.schedule.comfort;
   const simulated=useMemo(()=>{
@@ -44,10 +48,13 @@ export function BillingPanel({project,table,result,source}:{project:Project;tabl
   const tempoChanged=bill&&COLOURS.some(c=>bill.split[c].days!==profile.days[c]);
   const monthlyMax=Math.max(1,...(bill?.monthly.map(m=>chart==='kwh'?m.kwh:m.total??0)??[]));
   const powerMax=Math.max(1,...(bill?.typical.map(h=>h.power)??[]));
-  return <section className="billing" aria-label={t('billing.title')} data-rc-ms={simulated.elapsed.toFixed(3)}>
+  return <><section className="billing" aria-label={t('billing.title')} data-rc-ms={simulated.elapsed.toFixed(3)}>
     <div className="row"><h2>{t('billing.title')}</h2><span className="billing-badge">{t('billing.local')}</span></div>
     <p>{t('billing.model',{ua:fmt(effective,2),source:t('billing.source.'+(calibrated?source:'analytic')),capacity:fmt((settings.capacityPerArea??CAPACITY[settings.inertia])/1000,0)})}</p>
+    <p className="hint">{t('billing.designClimateNote')}</p>
     <p className="hint">{t('billing.assumptions')}</p>
+    {settings.envelope&&<p className="billing-warning">{t('planner.appliedModifiers',{window:fmt(settings.envelope.windowFactor,3),ach:fmt(settings.envelope.achFactor,3)})}{' '}
+      <button onClick={()=>setSettings(s=>({...s,envelope:undefined}))}>{t('planner.resetModifiers')}</button></p>}
     {result?.kpi.not_settled&&<p className="billing-warning">{t('billing.unsettled')}</p>}
     {storageError&&<p role="alert" className="billing-warning">{t('billing.storageError')}</p>}
     <div className="billing-editor">
@@ -132,5 +139,8 @@ export function BillingPanel({project,table,result,source}:{project:Project;tabl
         {settings.schedule[pattern].map((checked,h)=><label key={h} className={checked?'is-comfort':''}><span>{h}:00</span><input type="checkbox" checked={checked} aria-label={t('billing.scheduleHour',{day:t('billing.'+pattern),hour:h})} onChange={e=>setSettings(s=>({...s,schedule:{...s.schedule,[pattern]:s.schedule[pattern].map((v,j)=>j===h?e.target.checked:v)}}))}/></label>)}
       </fieldset>)}
     </details>
-  </section>;
+  </section><PlannerPanel input={plannerInput} onApply={state=>{
+    setSettings(state.settings);
+    if(JSON.stringify(state.project)!==JSON.stringify(project))onProjectChange(state.project);
+  }}/></>;
 }
