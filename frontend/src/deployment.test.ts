@@ -2,6 +2,10 @@ import {describe,it,expect,vi} from 'vitest';
 import {createDeployment} from './deployment';
 
 describe('static deployment gating',()=>{
+  it('omits the redundant solver empty-state notice only in static mode',()=>{
+    expect(createDeployment(true).showSolverEmptyState).toBe(false);
+    expect(createDeployment(false).showSolverEmptyState).toBe(true);
+  });
   it('loads only the bundled S1 artifact, ignores job links, and hides CFD actions/layers',async()=>{
     const fetcher=vi.fn().mockResolvedValue(new Response('{"presets":{}}')),mode=createDeployment(true,fetcher);
     expect(await mode.loadArtifact()).toEqual({presets:{}});
