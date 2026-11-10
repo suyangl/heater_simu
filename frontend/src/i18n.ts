@@ -21,7 +21,7 @@ export function translateWarning(warning:string,language:Language):string {
 }
 export function formatError(error:unknown,language:Language):string {
   if(error instanceof ApiError)return formatError(error.detail,language);
-  if(Array.isArray(error))return error.map(e=>formatError(e,language)).join('; ');
+  if(Array.isArray(error))return error.length?error.map(e=>formatError(e,language)).join('; '):translate('请求失败，请检查输入或查看求解日志',language);
   if(error&&typeof error==='object'&&'msg' in error){
     const e=error as {msg:string;type:string;ctx?:Record<string,number>;loc?:Array<string|number>};
     const types:Record<string,[string,string?]>={missing:['必填字段'],literal_error:['请选择有效选项'],finite_number:['请输入有限数字'],float_parsing:['请输入有限数字'],extra_forbidden:['不允许额外字段'],greater_than_equal:['至少 {bound}','ge'],greater_than:['大于 {bound}','gt'],less_than_equal:['至多 {bound}','le'],less_than:['小于 {bound}','lt'],too_long:['最多 {bound} 项','max_length'],string_too_long:['最多 {bound} 项','max_length']};

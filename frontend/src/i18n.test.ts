@@ -10,6 +10,7 @@ describe('bilingual UI',()=>{
     for(const key of Object.keys(dictionaries.en) as Array<keyof typeof dictionaries.en>){
       expect(dictionaries.en[key].trim()).not.toBe('');
       expect(dictionaries.zh[key].match(/\{\w+\}/g)?.sort()).toEqual(dictionaries.en[key].match(/\{\w+\}/g)?.sort());
+      expect(key+dictionaries.zh[key]+dictionaries.en[key]).not.toContain('\uFFFD');
       if(key!=='中文')expect(dictionaries.en[key]).not.toMatch(/\p{Script=Han}/u);
     }
   });
@@ -28,12 +29,14 @@ describe('bilingual UI',()=>{
     const p={furniture:[{kind:'床',name:'我的床',x:1,y:2,z:0,l:1.9,w:1.4,h:.55}]} as Project;
     expect(migrateProject(p).furniture).toEqual([{...p.furniture[0],kind:'bed'}]);
     expect(p.furniture[0].kind).toBe('床');
+    expect(migrateProject({...p,furniture:[]})).toEqual({...p,furniture:[]});
   });
   it('translates 422 geometry errors, Pydantic bounds and unknown errors',()=>{
     expect(formatError(new ApiError('家具或暖器重叠'),'en')).toBe('Furniture or heater overlaps');
     expect(formatError(new ApiError([{loc:['body','room','length'],type:'greater_than_equal',msg:'Input should be greater than or equal to 2',ctx:{ge:2}}]),'en')).toContain('at least 2');
     expect(formatError(new ApiError('未知错误'),'en')).toContain('Request failed');
-    expect(formatError(new ApiError([]),'zh')).toBe('');
+    expect(formatError(new ApiError([]),'zh')).toContain('请求失败');
+    expect(formatError('家具或暖器超出房间','en')).toBe('Furniture or heater extends beyond the room');
     expect(formatError('Value error, 窗户只能位于外墙','en')).toBe('Windows must be on exterior walls');
   });
   it('translates timing, unsettled warnings and capacity on a language switch',()=>{
