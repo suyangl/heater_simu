@@ -72,6 +72,22 @@ docker compose --profile train run --rm --no-deps trainer --status
 
 测试：`docker compose run --rm --no-deps -v "$PWD:/review:ro" -w /review -e PYTHONPATH=/review/api:/review api python -m pytest -q -p no:cacheprovider api/tests trainer`（只读源码挂载不写 pytest 缓存）。
 
+### 数据集恒温器与失败恢复
+
+训练通过同一个 worker 的 opt-in `settled` 控制模式运行；交互任务仍使用原有控制方式及 **1200 s** 默认预算。训练的 `TRAIN_SOLVE_BUDGET` 默认为 **3600 s/次**，可显式调整。不是放宽验收：均温仍须距设定 ≤0.5°C，能量误差须 **<10%**。训练先在固定 Q 下等待相邻平均窗口温度变化 ≤0.15°C 且能量误差 <5%，再更新功率，避免把仍在冷却/升温的状态误当成平衡响应。更新使用受限、0.7 阻尼的正斜率 secant；斜率无效时退回阻尼比例更新，单次变化限制 ±35%。空气 RC 时间常数 >3000 s 时使用较长的 2000/1500 次初始/后续稳定块，其他情况为 1500/1000 次；每块末 800 次测量。达到目标后固定功率再做完整 **2000 次最终平均**；若漂移或不平衡则继续稳定/控制，而不是在第一次穿过设定温度时提前终止。所有温度/热损失均来自同一平均窗口，物理 BC、源区及有限体积字典不变。
+
+每次尝试保存 `attempt-N-thermostat.json`，含各块的 Q、均温、热损失、能量误差与 settle/final 阶段。控制策略升级后，在 trainer **已停止**时执行：
+
+```sh
+docker compose stop trainer
+docker compose --profile train build trainer
+docker compose --profile train run --rm --no-deps trainer --reset-failed
+# 本 VM 恢复时保留原来的并行配额
+TRAIN_CPUS=6 TRAIN_MEMORY=12g docker compose --profile train up -d trainer
+```
+
+`--reset-failed` 只做归档/重置然后退出：完整旧 manifest、失败/拒收/中断目录移动至 `audit/retry-*`，累计尝试次数从 0 开始；有效 accepted 结果及元数据保持原字节不变，并在 manifest migration 中记录保留名单及旧控制器指纹。只适用于明确批准的收敛控制升级；改变房间设计或物理模型仍应使用新版本/目录。
+
 ### ParaView 风格平均场
 
 结果视图使用石板灰背景、温度着色边界、速度着色流线与半透明暖羽流等温面，配有白色虚线包围框、XYZ 方向器和带细刻度的温度/风速色标。墙面保持透明，可分别切换墙面、表面着色、流线、等温面和温度切片。旧结果缺少新字段时仍可显示几何与原有温度切片；不可用图层会禁用。

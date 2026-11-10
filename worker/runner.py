@@ -62,7 +62,54 @@ def averaged_room_mean(path):
     return float(np.average(np.asarray(mesh.cell_data['TMean'])-273.15, weights=volumes))
 
 
-def solve_thermostat(path, nprocs, budget=1200):
+def settled_power(power, mean, project, previous=None):
+    proposed = thermostat_power(power, mean, project)
+    if project.heater.setpoint_c <= project.outdoor_temp:
+        return 0.
+    if previous is not None:
+        old_power, old_mean = previous
+        if abs(mean-old_mean) > .1 and (power-old_power)*(mean-old_mean) > 0:
+            secant = power+(project.heater.setpoint_c-mean)*(power-old_power)/(mean-old_mean)
+            if np.isfinite(secant) and secant >= 0:
+                proposed = secant
+    if power <= 0:
+        return proposed
+    damped = power+.7*(proposed-power)
+    return min(project.heater.power_w, max(0., max(.65*power, min(1.35*power, damped))))
+
+
+def settled_control(project, power, measure):
+    r = project.room
+    time_constant = 1.2*1005*r.length*r.width*r.height/project.thermal()['ua_total']
+    slow = time_constant > 3000
+    previous_mean = previous_point = None
+    for cycle in range(60):
+        length = (2000 if slow else 1500) if cycle == 0 else (1500 if slow else 1000)
+        point = measure(power, length, 800, 'settle')
+        mean = point['room_mean_c']
+        drift = abs(mean-previous_mean) if previous_mean is not None else float('inf')
+        previous_mean = mean
+        if drift > .15 or point['energy_balance_error'] >= .05:
+            continue
+        no_demand = project.heater.setpoint_c <= project.outdoor_temp
+        capped = power >= project.heater.power_w*(1-1e-9) and mean < project.heater.setpoint_c-.5
+        if abs(mean-project.heater.setpoint_c) <= .2 or capped or no_demand:
+            final = measure(power, 2000, 2000, 'final')
+            final_mean = final['room_mean_c']
+            insufficient = power >= project.heater.power_w*(1-1e-9) and final_mean < project.heater.setpoint_c-.5
+            if (abs(final_mean-mean) <= .15 and final['energy_balance_error'] < .1
+                    and (abs(final_mean-project.heater.setpoint_c) <= .5 or insufficient or no_demand)):
+                return final
+            previous_mean = final_mean
+            continue
+        new_power = settled_power(power, mean, project, previous_point)
+        previous_point = (power, mean)
+        power = new_power
+        previous_mean = None
+    raise RuntimeError('Settled thermostat did not converge within 60 measurement blocks')
+
+
+def solve_thermostat(path, nprocs, budget=1200, settled=False):
     if nprocs not in (1, 2):
         raise ValueError('M0 supports OPENFOAM_NPROCS=1 or 2')
     project = Project.model_validate_json((path/'project.json').read_text())
@@ -93,23 +140,39 @@ def solve_thermostat(path, nprocs, budget=1200):
         if not np.isfinite(mean):
             raise ValueError('Thermostat received a non-finite room temperature')
         return start, mean
-    insufficient = False
-    for attempt in range(8):
-        _, mean = block(1500 if attempt == 0 else 700, 400 if attempt == 0 else 300)
-        history.append({'end_iteration': end, 'power_w': power, 'room_mean_c': mean})
-        (path/'thermostat.json').write_text(json.dumps(history, allow_nan=False))
-        insufficient = power >= project.heater.power_w*(1-1e-9) and mean < project.heater.setpoint_c-.5
-        if abs(mean-project.heater.setpoint_c) <= .5 or insufficient or project.heater.setpoint_c <= project.outdoor_temp:
-            break
-        power = thermostat_power(power, mean, project)
+    if settled:
+        def measure(q, length, samples, phase):
+            nonlocal power
+            power = q
+            start, mean = block(length, samples)
+            _, flux = wall_heat_flux(path, {'heater', project.exterior_wall, 'window'}, (start, end))
+            loss = -sum(value for patch, value in flux.items() if patch != 'heater')
+            point = {'end_iteration': end, 'average_start': start, 'power_w': power,
+                     'room_mean_c': mean, 'phase': phase, 'heat_loss_w': loss,
+                     'energy_balance_error': abs(loss-power)/max(abs(power), 1e-9)}
+            history.append(point)
+            (path/'thermostat.json').write_text(json.dumps(history, allow_nan=False))
+            return point
+        final = settled_control(project, power, measure)
+        average_start, final_mean = final['average_start'], final['room_mean_c']
     else:
-        raise RuntimeError('CFD thermostat did not settle within eight control blocks')
-    average_start, final_mean = block(600, 600)
+        for attempt in range(8):
+            _, mean = block(1500 if attempt == 0 else 700, 400 if attempt == 0 else 300)
+            history.append({'end_iteration': end, 'power_w': power, 'room_mean_c': mean})
+            (path/'thermostat.json').write_text(json.dumps(history, allow_nan=False))
+            insufficient = power >= project.heater.power_w*(1-1e-9) and mean < project.heater.setpoint_c-.5
+            if abs(mean-project.heater.setpoint_c) <= .5 or insufficient or project.heater.setpoint_c <= project.outdoor_temp:
+                break
+            power = thermostat_power(power, mean, project)
+        else:
+            raise RuntimeError('CFD thermostat did not settle within eight control blocks')
+        average_start, final_mean = block(600, 600)
     insufficient = power >= project.heater.power_w*(1-1e-9) and final_mean < project.heater.setpoint_c-.5
     if project.heater.setpoint_c > project.outdoor_temp and not insufficient and abs(final_mean-project.heater.setpoint_c) > .5:
         raise RuntimeError(f'Final thermostat averaging drifted from setpoint: {final_mean:.3f} C')
     meta = json.loads((path/'case_meta.json').read_text())
     meta.update(average_start=average_start, iterations=end, cfd_heater_power_w=power,
+                thermostat_mode='settled' if settled else 'interactive',
                 thermostat_iterations=len(history), insufficient_power=insufficient,
                 thermostat_history=history)
     (path/'case_meta.json').write_text(json.dumps(meta, allow_nan=False))
@@ -179,6 +242,7 @@ def postprocess(path, elapsed):
                       'duty_cycle': effective/project.heater.power_w,
                       'insufficient_power': meta['insufficient_power'],
                       'thermostat_iterations': meta['thermostat_iterations'],
+                      'thermostat_mode': meta.get('thermostat_mode', 'interactive'),
                       'thermostat_history': meta['thermostat_history'],
                       'modelling_note': 'M0 excludes radiation; CFD thermostat controls convective heating only.',
                       'heat_loss_w': loss, 'heat_loss_split_w': losses,

@@ -11,7 +11,7 @@ import numpy as np
 import pyvista as pv
 
 from app.models import Project
-from runner import postprocess, run, solve_thermostat, thermostat_power
+from runner import postprocess, run, settled_control, settled_power, solve_thermostat, thermostat_power
 
 
 class PostprocessTest(unittest.TestCase):
@@ -103,6 +103,18 @@ class PostprocessTest(unittest.TestCase):
         self.assertTrue(meta['insufficient_power'])
         self.assertEqual(meta['cfd_heater_power_w'], 1500)
 
+    def test_settled_mode_uses_matching_long_final_flux_and_field_window(self):
+        (self.path/'system').mkdir()
+        with patch('runner.run'), patch('runner.averaged_room_mean', return_value=19), \
+                patch('runner.wall_heat_flux', return_value=(4500, {'heater': 0, 'N': -405.3, 'window': 0})) as flux:
+            solve_thermostat(self.path, 2, settled=True)
+        meta = json.loads((self.path/'case_meta.json').read_text())
+        self.assertEqual(meta['thermostat_mode'], 'settled')
+        self.assertEqual(meta['average_start'], 2501)
+        self.assertEqual(meta['iterations'], 4500)
+        self.assertEqual(flux.call_args.args[-1], (2501, 4500))
+        self.assertEqual(meta['thermostat_history'][-1]['phase'], 'final')
+
     def test_thermostat_budget_error(self):
         with self.assertRaises(TimeoutError):
             solve_thermostat(self.path, 2, budget=0)
@@ -142,6 +154,55 @@ class PostprocessTest(unittest.TestCase):
             run([sys.executable, '-c', 'raise SystemExit(3)'], self.path)
         with self.assertRaises(subprocess.TimeoutExpired):
             run([sys.executable, '-c', 'import time; time.sleep(60)'], self.path, .05)
+
+
+class SettledControlTest(unittest.TestCase):
+    def test_secant_damping_and_bad_slope_fallback(self):
+        p = Project()
+        self.assertAlmostEqual(settled_power(100, 21, p, (80, 17)), 93)
+        self.assertAlmostEqual(settled_power(100, 20, p, (120, 19)), 100+.7*(100*14/15-100))
+        self.assertGreaterEqual(settled_power(100, 30, p, (99, 29)), 65)
+        self.assertEqual(settled_power(100, 30, Project(outdoor_temp=25)), 0)
+        with self.assertRaises(ValueError):
+            settled_power(100, float('nan'), p)
+
+    def control(self, values, project=None):
+        values = iter(values)
+        calls = []
+        def measure(power, length, samples, phase):
+            calls.append((power, length, samples, phase))
+            mean, error = next(values)
+            return {'power_w': power, 'room_mean_c': mean, 'energy_balance_error': error}
+        result = settled_control(project or Project(), 100, measure)
+        return result, calls
+
+    def test_does_not_update_from_unsettled_measurements(self):
+        result, calls = self.control([(22, .2), (22.1, .02), (19.1, .02), (19.1, .02), (19.05, .01)])
+        self.assertEqual([c[0] for c in calls[:2]], [100, 100])
+        self.assertLess(calls[2][0], 100)
+        self.assertEqual(calls[-1][1:], (2000, 2000, 'final'))
+        self.assertEqual(result['room_mean_c'], 19.05)
+
+    def test_low_ua_uses_longer_settle_blocks(self):
+        _, calls = self.control([(19, .01), (19, .01), (19, .01)], Project(dpe='A'))
+        self.assertEqual(calls[0][1], 2000)
+        self.assertEqual(calls[1][1], 1500)
+
+    def test_final_drift_resumes_control_instead_of_failing(self):
+        result, calls = self.control([(19, .01), (19, .01), (18.1, .01),
+                                      (18.1, .01), (19, .01), (19, .01), (19, .01)])
+        self.assertEqual(result['room_mean_c'], 19)
+        self.assertGreater(calls[4][0], calls[3][0])
+
+    def test_final_bad_balance_holds_same_power_and_reaverages(self):
+        result, calls = self.control([(19, .01), (19, .01), (19, .125),
+                                      (19, .01), (19, .02)])
+        self.assertEqual(result['energy_balance_error'], .02)
+        self.assertTrue(all(c[0] == 100 for c in calls))
+
+    def test_never_settling_raises(self):
+        with self.assertRaisesRegex(RuntimeError, '60 measurement blocks'):
+            self.control([(19, .2)]*60)
 
 
 if __name__ == '__main__':

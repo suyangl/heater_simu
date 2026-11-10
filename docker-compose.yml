@@ -33,6 +33,7 @@ services:
     command: []
     environment:
       OMPI_MCA_hwloc_base_binding_policy: none
+      TRAIN_SOLVE_BUDGET: "${TRAIN_SOLVE_BUDGET:-3600}"
     volumes:
       - heater_data:/data
     cpus: "${TRAIN_CPUS:-2}"

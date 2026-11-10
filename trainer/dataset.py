@@ -37,6 +37,13 @@ def read_json(path):
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+def training_policy():
+    budget = float(os.environ.get('TRAIN_SOLVE_BUDGET', '3600'))
+    if not math.isfinite(budget) or budget <= 0:
+        raise ValueError('TRAIN_SOLVE_BUDGET must be finite and positive')
+    return {'mode': 'settled', 'budget_s': budget}
+
+
 def rejection(result):
     try:
         k = result['kpi']
@@ -44,7 +51,7 @@ def rejection(result):
                   result['T']['min'], result['T']['max'], k['air_density_min'], k['air_density_max']]
         if not all(math.isfinite(value) for value in values):
             return 'Non-finite result metrics'
-        if not 0 <= k['energy_balance_error'] <= .1:
+        if not 0 <= k['energy_balance_error'] < .1:
             return f'Energy balance rejected: {k["energy_balance_error"]}'
         if abs(k['room_average_c']-19) > .5 or k['insufficient_power']:
             return f'Thermostat rejected: {k["room_average_c"]} C, insufficient={k["insufficient_power"]}'
@@ -71,7 +78,7 @@ def execute_case(work, project):
     generate(project, work)
     pipeline.run(['blockMesh'], work, 120)
     pipeline.run(['topoSet'], work, 120)
-    elapsed = pipeline.solve_thermostat(work, 2)
+    elapsed = pipeline.solve_thermostat(work, 2, budget=training_policy()['budget_s'], settled=True)
     pipeline.postprocess(work, elapsed)
     return read_json(work/'result.json')
 
@@ -86,6 +93,7 @@ def run_case(root, case, execute=execute_case):
     thermal = project.thermal()
     record = {**record, **case, 'analytic_ua_w_k': thermal['ua_total'],
               'analytic_power_w': thermal['ua_total']*(project.heater.setpoint_c-project.outdoor_temp),
+              'solver_policy': training_policy(),
               'updated_at': time.time()}
     attempts = record.get('attempts', 0)
     if record.get('status') == 'running':
@@ -117,6 +125,8 @@ def run_case(root, case, execute=execute_case):
             (directory/f'attempt-{attempt}-error.txt').write_text(traceback.format_exc())
         if (work/'run.log').exists():
             shutil.copyfile(work/'run.log', directory/f'attempt-{attempt}.log')
+        if (work/'thermostat.json').exists():
+            shutil.copyfile(work/'thermostat.json', directory/f'attempt-{attempt}-thermostat.json')
         record.update(wall_time_s=time.monotonic()-started, updated_at=time.time())
         write_json(directory/f'attempt-{attempt}.json', record)
         write_json(directory/'metadata.json', record)
@@ -155,7 +165,7 @@ def summary(root, plan):
     return {**counts, 'total': len(plan), 'mean_case_wall_time_s': sum(seconds)/len(seconds) if seconds else None}
 
 
-def prepare(root, definition, plan):
+def prepare(root, definition, plan, reset_failed=False):
     root.mkdir(parents=True, exist_ok=True)
     base = Path(__file__).resolve().parents[1]
     runner = base/'worker/runner.py' if (base/'worker/runner.py').exists() else base/'runner.py'
@@ -164,10 +174,36 @@ def prepare(root, definition, plan):
     digest = hashlib.sha256()
     for source in sources:
         digest.update(source.name.encode()+b'\0'+source.read_bytes())
-    manifest = {'definition': definition, 'cases': plan, 'physics_sha256': digest.hexdigest()}
+    manifest = {'definition': definition, 'cases': plan, 'physics_sha256': digest.hexdigest(),
+                'solver_policy': training_policy()}
     path = root/'manifest.json'
-    if path.exists() and read_json(path) != manifest:
+    old = read_json(path)
+    if old and (old['definition'] != definition or old['cases'] != plan):
         raise ValueError('Dataset manifest differs; use a new version/directory, never mix designs')
+    manifest['migrations'] = old.get('migrations', [])
+    if old and any(old.get(key) != manifest[key] for key in ('physics_sha256', 'solver_policy')) and not reset_failed:
+        raise ValueError('Solver policy changed; explicitly archive/reset failures with --reset-failed or use a new directory')
+    if reset_failed:
+        archive = root/'audit'/f'retry-{time.time_ns()}'
+        archive.mkdir(parents=True)
+        if path.exists():
+            shutil.copy2(path, archive/'manifest.json')
+        retained, reset = [], []
+        for case in plan:
+            directory = root/'cases'/case['id']
+            record = read_json(directory/'metadata.json')
+            if complete(directory, record):
+                retained.append(case['id'])
+            elif record and record.get('attempts', 0):
+                target = archive/'cases'/case['id']
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(directory), target)
+                directory.mkdir()
+                write_json(directory/'metadata.json', {**case, 'status': 'pending', 'attempts': 0,
+                                                       'previous_attempts': str(target.relative_to(root))})
+                reset.append(case['id'])
+        manifest['migrations'].append({'archive': str(archive.relative_to(root)),
+                                       'retained_accepted': retained, 'reset': reset})
     write_json(path, manifest)
 
 
@@ -176,6 +212,8 @@ def main():
     parser.add_argument('--root', type=Path, default=DEFAULT_ROOT)
     parser.add_argument('--workers', type=int)
     parser.add_argument('--status', action='store_true')
+    parser.add_argument('--reset-failed', action='store_true',
+                        help='Archive/reset non-accepted cases and adopt the updated controller policy, then exit')
     args = parser.parse_args()
     definition = load_definition()
     plan = cases(definition)
@@ -188,7 +226,12 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             parser.error('Another trainer already owns this dataset')
-        prepare(args.root, definition, plan)
+        prepare(args.root, definition, plan, reset_failed=args.reset_failed)
+        if args.reset_failed:
+            state = summary(args.root, plan)
+            write_json(args.root/'status.json', state)
+            emit(args.root, {'event': 'failures_reset', **state})
+            return
         resources = resource_capacity()
         workers = args.workers if args.workers is not None else resources['capacity']
         if not 1 <= workers <= resources['capacity']:

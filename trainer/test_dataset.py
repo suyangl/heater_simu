@@ -5,7 +5,7 @@ import pytest
 
 from app.case import generate
 from app.models import Project
-from trainer.dataset import complete, prepare, rejection, run_case, summary, write_json
+from trainer.dataset import complete, prepare, rejection, run_case, summary, training_policy, write_json
 from trainer.doe import cases, load_definition, project_for
 
 
@@ -58,8 +58,10 @@ def test_quality_rejects_invalid_results(field, value):
 
 def test_quality_boundaries_and_missing_metrics():
     result = valid_result()
-    result['kpi'].update(energy_balance_error=.1, room_average_c=19.5)
+    result['kpi'].update(energy_balance_error=.09999, room_average_c=19.5)
     assert rejection(result) is None
+    result['kpi']['energy_balance_error'] = .1
+    assert rejection(result)
     assert rejection({})
 
 
@@ -158,3 +160,40 @@ def test_manifest_refuses_changed_definition(tmp_path):
     changed['outdoor_temp'] = 0
     with pytest.raises(ValueError, match='manifest differs'):
         prepare(tmp_path, changed, plan)
+
+
+def test_reset_archives_failures_and_keeps_accepted_bytes(tmp_path):
+    definition = load_definition()
+    plan = cases()[:2]
+    prepare(tmp_path, definition, plan)
+    run_case(tmp_path, plan[0], lambda *_: valid_result())
+    run_case(tmp_path, plan[1], lambda *_: (_ for _ in ()).throw(RuntimeError('CFD failure')))
+    good = tmp_path/'cases'/plan[0]['id']
+    original_result = (good/'result.json').read_bytes()
+    original_meta = (good/'metadata.json').read_bytes()
+    manifest = json.loads((tmp_path/'manifest.json').read_text())
+    manifest['physics_sha256'] = 'old-controller-hash'
+    write_json(tmp_path/'manifest.json', manifest)
+    with pytest.raises(ValueError, match='Solver policy changed'):
+        prepare(tmp_path, definition, plan)
+    prepare(tmp_path, definition, plan, reset_failed=True)
+    assert (good/'result.json').read_bytes() == original_result
+    assert (good/'metadata.json').read_bytes() == original_meta
+    failed = tmp_path/'cases'/plan[1]['id']
+    reset = json.loads((failed/'metadata.json').read_text())
+    assert reset['attempts'] == 0 and reset['status'] == 'pending'
+    assert (tmp_path/reset['previous_attempts']/'attempt-2-error.txt').exists()
+    assert run_case(tmp_path, plan[1], lambda *_: valid_result())['status'] == 'accepted'
+    prepare(tmp_path, definition, plan)
+
+
+@pytest.mark.parametrize('value', ['0', '-1', 'nan', 'inf', 'bad'])
+def test_invalid_training_budget_rejected(monkeypatch, value):
+    monkeypatch.setenv('TRAIN_SOLVE_BUDGET', value)
+    with pytest.raises(ValueError):
+        training_policy()
+
+
+def test_configurable_training_budget(monkeypatch):
+    monkeypatch.setenv('TRAIN_SOLVE_BUDGET', '5400')
+    assert training_policy() == {'mode': 'settled', 'budget_s': 5400}
