@@ -1,4 +1,11 @@
 export const en = {
+  "static.title": "Static demo · instant S1 only",
+  "static.notice": "Static demo — instant S1 estimates only; run the Docker version locally for OpenFOAM.",
+  "static.readme": "Local Docker guide (README)",
+  "static.localRequired": "No S1 estimate for this room. OpenFOAM requires the local Docker version.",
+  "static.tableUnavailable": "The bundled S1 table is unavailable. Reload or check the static deployment.",
+  "static.physics": "S1 is a convection-only estimate without radiation. An insufficient-power field is a target, not an achievable temperature. Use local Docker for OpenFOAM.",
+  "static.validation": ". Partial training table; not a validated CFD result.",
   "probe.person": "Person",
   "probe.title": "Temperature probe",
   "probe.drag": "Drag the person across the floor",
@@ -381,6 +388,13 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "static.title": "静态演示 · 仅 S1 即时预估",
+  "static.notice": "静态演示 — 仅提供 S1 即时预估；如需 OpenFOAM 精算，请在本机运行 Docker 版本。",
+  "static.readme": "本机 Docker 使用说明（README）",
+  "static.localRequired": "此房间暂无 S1 预估；OpenFOAM 精算需要本机 Docker 版本。",
+  "static.tableUnavailable": "内置 S1 预估表不可用，请刷新或检查静态部署。",
+  "static.physics": "S1 仅为无辐射对流预估；功率不足时显示的是目标温度场，不代表实际可达到温度。OpenFOAM 精算请使用本机 Docker 版本。",
+  "static.validation": "。当前为部分训练表，非已验证的 CFD 结果。",
   "probe.person": "小人",
   "probe.title": "测温小人",
   "probe.drag": "拖动小人在地板上移动",
