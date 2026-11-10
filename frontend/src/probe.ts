@@ -19,6 +19,13 @@ export function restoreProbe(raw:string|null,room:Room):ProbeSettings {
   return {posture:['standing','sitting','lying'].includes(value.posture??'')?value.posture!:'standing',
     ...clampPosition({x:value.x??room.length/2,y:value.y??room.width/2},room)};
 }
+function seatedPlacement(x:number,y:number,yaw:number,room:Room) {
+  const corners=[[-.2,-.2],[-.2,.5],[.2,-.2],[.2,.5]].map(([side,forward])=>({
+    x:Math.cos(yaw)*side+Math.sin(yaw)*forward,y:-Math.sin(yaw)*side+Math.cos(yaw)*forward
+  }));
+  return {x:Math.max(-Math.min(...corners.map(c=>c.x)),Math.min(room.length-Math.max(...corners.map(c=>c.x)),x)),
+    y:Math.max(-Math.min(...corners.map(c=>c.y)),Math.min(room.width-Math.max(...corners.map(c=>c.y)),y)),yaw};
+}
 export function probePose(settings:ProbeSettings,p:Pick<Project,'room'|'furniture'>) {
   let {x,y}=clampPosition(settings,p.room);
   const box=settings.posture==='standing'?undefined:p.furniture
@@ -36,8 +43,14 @@ export function probePose(settings:ProbeSettings,p:Pick<Project,'room'|'furnitur
   }else if(settings.posture==='sitting'&&box){
     const edges=[{d:y-box.y,x,y:box.y,yaw:Math.PI},{d:box.y+box.w-y,x,y:box.y+box.w,yaw:0},
       {d:x-box.x,x:box.x,y,yaw:-Math.PI/2},{d:box.x+box.l-x,x:box.x+box.l,y,yaw:Math.PI/2}];
-    const edge=edges.sort((a,b)=>a.d-b.d)[0];x=edge.x;y=edge.y;yaw=edge.yaw;
+    edges.sort((a,b)=>a.d-b.d);
+    const edge=edges.find(e=>{
+      const placed=seatedPlacement(e.x,e.y,e.yaw,p.room);
+      return Math.abs(placed.x-e.x)<1e-8&&Math.abs(placed.y-e.y)<1e-8;
+    })??edges[0];
+    ({x,y,yaw}=seatedPlacement(edge.x,edge.y,edge.yaw,p.room));
   }else if(settings.posture==='sitting')yaw=Math.PI;
+  if(settings.posture==='sitting')({x,y,yaw}=seatedPlacement(x,y,yaw,p.room));
   const seat=box?support+.025:.08;
   return {x,y,support,seat,axis,yaw,length,width};
 }

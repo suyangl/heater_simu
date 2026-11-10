@@ -109,4 +109,32 @@ describe('probe posture and preferences',()=>{
     expect(lying.body.value).toBeCloseTo(21.3);
     expect(readProbe(makeSampler(null),p,settings).comfort).toBe('unavailable');
   });
+  it('chooses an inward-safe support edge at each wall and keeps drawn feet and samples indoors',()=>{
+    for(const [box,x,y] of [
+      [{x:1,y:0,z:0,l:2,w:1,h:.5},2,.05],
+      [{x:1,y:2,z:0,l:2,w:1,h:.5},2,2.95],
+      [{x:0,y:1,z:0,l:1,w:1,h:.5},.05,1.5],
+      [{x:3,y:1,z:0,l:1,w:1,h:.5},3.95,1.5],
+    ] as const){
+      const project={...p,furniture:[box]},settings={posture:'sitting' as const,x,y},pose=probePose(settings,project);
+      for(const side of [-.113,.113])for(const forward of [.36,.47]){
+        const foot={x:pose.x+Math.cos(pose.yaw)*side+Math.sin(pose.yaw)*forward,
+          y:pose.y-Math.sin(pose.yaw)*side+Math.cos(pose.yaw)*forward};
+        expect(foot.x).toBeGreaterThanOrEqual(0);expect(foot.x).toBeLessThanOrEqual(p.room.length);
+        expect(foot.y).toBeGreaterThanOrEqual(0);expect(foot.y).toBeLessThanOrEqual(p.room.width);
+      }
+      readProbe((sx,sy)=>{expect(sx).toBeGreaterThanOrEqual(0);expect(sx).toBeLessThanOrEqual(p.room.length);
+        expect(sy).toBeGreaterThanOrEqual(0);expect(sy).toBeLessThanOrEqual(p.room.width);return {value:20,nearest:false};},project,settings);
+    }
+    expect(probePose({posture:'sitting',x:2,y:.05},{...p,furniture:[{x:1,y:0,z:0,l:2,w:1,h:.5}]}).y).toBe(1);
+  });
+  it('clamps floor sitting and a support with no safe outward edge inside the room',()=>{
+    for(const furniture of [[],[{x:0,y:0,z:0,l:4,w:3,h:.5}]]){
+      const project={...p,furniture},settings={posture:'sitting' as const,x:0,y:0},pose=probePose(settings,project);
+      expect(pose.x).toBeGreaterThanOrEqual(.19);
+      expect(pose.y-.47).toBeGreaterThanOrEqual(0);
+      readProbe((x,y)=>{expect(x).toBeGreaterThanOrEqual(0);expect(y).toBeGreaterThanOrEqual(0);
+        return {value:20,nearest:false};},project,settings);
+    }
+  });
 });
