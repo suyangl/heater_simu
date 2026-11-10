@@ -5,6 +5,7 @@ export type Surface = {positions:string;indices:string;T:string;speed:string;nam
 type Streamlines = {positions:string;indices:string;offsets:string;speed:string;T:string;line_count:number};
 export type VisualFields = {U?:{data:string;min:number;max:number};surfaces?:Surface[];streamlines?:Streamlines;isosurface?:Surface|null;temperature_range?:number[]};
 export type Layers = {walls:boolean;colors:boolean;streamlines:boolean;iso:boolean;slice:boolean};
+export const speedLegendVisible=(enabled:boolean,layers:Pick<Layers,'streamlines'|'iso'>)=>enabled&&(layers.streamlines||layers.iso);
 export const gradient = 'linear-gradient(to top,#30123b,#466be3,#28b8c4,#88ef66,#e8de3e,#f66b19,#7a0403)';
 const stops = ['#30123b','#466be3','#28b8c4','#88ef66','#e8de3e','#f66b19','#7a0403'].map(c=>new THREE.Color(c));
 

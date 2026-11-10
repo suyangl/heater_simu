@@ -51,7 +51,10 @@ export function applyMeasures(input:PlannerInput,measures:Measure[],assumptions:
   const initialComfort=s.followProject?p.heater.setpoint_c:s.schedule.comfort;
   const modifiers={...(s.envelope??UNMODIFIED)};
   for(const m of measures){
-    if(m.kind==='setpoint'){p.heater.setpoint_c=initialComfort-m.amount!;s.schedule.comfort=p.heater.setpoint_c;s.followProject=true;}
+    if(m.kind==='setpoint'){
+      s.schedule.comfort=initialComfort-m.amount!;
+      if(s.followProject)p.heater.setpoint_c=s.schedule.comfort;
+    }
     if(m.kind==='eco')s.schedule.eco=m.amount!;
     if(m.kind==='shorten')for(const pattern of ['weekdays','weekends'] as const){
       const selected=s.schedule[pattern].flatMap((on,h)=>on?[h]:[]);
@@ -116,4 +119,13 @@ export function combinedPlan(input:PlannerInput,selected:Measure[],preferences:P
   const values=selected.map(m=>preferences.costs[m.id]??null);
   const investment=selected.length&&values.every(v=>v!==null)?values.reduce<number>((sum,v)=>sum+v!,0):null;
   return {scenario,...difference(baseline,scenario,preferences.assumptions.emission,investment)};
+}
+export function evaluatePlanner(input:PlannerInput,preferences:PlannerPreferences) {
+  const data=buildPlanner(input,preferences),groups=new Set<string>();
+  const selected=data.candidates.map(c=>c.measure).filter(m=>{
+    if(!preferences.selected.includes(m.id)||groups.has(m.group))return false;
+    groups.add(m.group);return true;
+  });
+  try{return {data,selected,combined:combinedPlan(input,selected,preferences),planError:null};}
+  catch{return {data,selected,combined:null,planError:'planner.combinationUnavailable'};}
 }

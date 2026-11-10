@@ -1,6 +1,6 @@
 import {useEffect,useMemo,useState} from 'react';
 import {useLanguage} from './Language';
-import {Assumptions,Measure,PLANNER_STORAGE,PlannerInput,applyMeasures,buildPlanner,combinedPlan,restorePlanner} from './planner';
+import {Assumptions,Measure,PLANNER_STORAGE,PlannerInput,applyMeasures,evaluatePlanner,restorePlanner} from './planner';
 import './planner.css';
 export function PlannerPanel({input,onApply}:{input:PlannerInput;onApply:(state:ReturnType<typeof applyMeasures>)=>void}) {
   const {t,language}=useLanguage();
@@ -9,12 +9,8 @@ export function PlannerPanel({input,onApply}:{input:PlannerInput;onApply:(state:
   useEffect(()=>{try{localStorage.setItem(PLANNER_STORAGE,JSON.stringify(preferences));setStorageError(false);}catch{setStorageError(true);}},[preferences]);
   const evaluated=useMemo(()=>{
     try{
-      const data=buildPlanner(input,preferences),groups=new Set<string>();
-      const selected=data.candidates.map(c=>c.measure).filter(m=>{
-        if(!preferences.selected.includes(m.id)||groups.has(m.group))return false;groups.add(m.group);return true;
-      });
-      return {data,selected,combined:combinedPlan(input,selected,preferences),error:null};
-    }catch(error){return {data:null,selected:[],combined:null,error:error instanceof Error?error.message:'planner.unavailable'};}
+      return {...evaluatePlanner(input,preferences),error:null};
+    }catch(error){return {data:null,selected:[],combined:null,planError:null,error:error instanceof Error?error.message:'planner.unavailable'};}
   },[input,preferences]);
   const fmt=(value:number|null|undefined,digits=1)=>value===null||value===undefined||!Number.isFinite(value)?'—':
     new Intl.NumberFormat(language==='zh'?'zh-CN':'en-GB',{minimumFractionDigits:digits,maximumFractionDigits:digits}).format(value);
@@ -32,7 +28,10 @@ export function PlannerPanel({input,onApply}:{input:PlannerInput;onApply:(state:
     {storageError&&<p className="billing-warning">{t('billing.storageError')}</p>}
     {applied&&<p className="planner-applied" role="status">{t('planner.applied')}</p>}
     {evaluated.error&&<p className="error" role="alert">{t(evaluated.error)}</p>}
-    {evaluated.data&&combined&&<>
+    <button disabled={!preferences.selected.length} onClick={()=>{setPreferences(p=>({...p,selected:[]}));setApplied(false);}}>{t('planner.clearSelection')}</button>
+    {evaluated.data&&<>
+      {evaluated.planError&&<div className="planner-plan" role="alert">{t(evaluated.planError)}</div>}
+      {combined&&
       <div className="planner-plan"><div className="row"><h3>{t('planner.myPlan',{n:selected.length})}</h3>
         <button disabled={!selected.length} onClick={()=>apply(combined.scenario)}>{t('planner.applyPlan')}</button></div>
         <p>{t('planner.combinedNote')}</p>
@@ -43,7 +42,7 @@ export function PlannerPanel({input,onApply}:{input:PlannerInput;onApply:(state:
         ].map(([label,value,unit])=><div key={label}><span>{t(label)}</span><strong>{value}<small> {unit}</small></strong></div>)}</div>
         <p>{t('planner.baseline',{kwh:fmt(evaluated.data.baseline.consumption.kwh),cost:fmt(evaluated.data.baseline.bill.total,2),ua:fmt(evaluated.data.baseline.ua,2)})}</p>
         {combined.comfortPp!==null&&combined.comfortPp<0&&<p className="billing-warning">{t('planner.comfortWarning')}</p>}
-      </div>
+      </div>}
       <h3>{t('planner.ranking.'+evaluated.data.ranking)}</h3>
       <p className="hint">{t('planner.selectionNote')}</p>
       <div className="billing-scroll"><table className="planner-table"><thead><tr>

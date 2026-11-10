@@ -1,4 +1,7 @@
 export const en = {
+  "风速色标": "Speed legend",
+  "planner.clearSelection": "Clear selection",
+  "planner.combinationUnavailable": "This combination cannot be estimated with the available S1 heating data (for example, its target is at or below the outdoor temperature). Deselect a measure or clear the selection; individual measures remain available.",
   "planner.title": "Saving planner",
   "planner.local": "Local RC scenarios · no automatic CFD run",
   "planner.note": "Seasonal estimates, not guaranteed savings. Each scenario is re-simulated with rated-power limits. Comfort rate uses each scenario's own target and scheduled hours, not spatial comfort; a lower target or shorter schedule can improve the percentage.",
@@ -341,6 +344,9 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "风速色标": "风速色标",
+  "planner.clearSelection": "清空选择",
+  "planner.combinationUnavailable": "现有 S1 供热数据无法估算此组合（例如组合目标温度不高于室外温度）。请取消一项措施或清空选择；仍可查看和选择各项措施。",
   "planner.title": "省电规划",
   "planner.local": "本地 RC 情景 · 不自动提交精算",
   "planner.note": "季节预估，不保证实际节省。每个情景均在额定功率限制下重新模拟。舒适率按各情景自身设定与时程计算，并非空间舒适度；降低目标或缩短舒适时段可能提高该比例。",
