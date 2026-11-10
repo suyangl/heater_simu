@@ -1,5 +1,16 @@
 import {describe,it,expect} from 'vitest';
-import {speedLegendVisible} from './ResultLayers';
+import {defaultLayers,speedLegendVisible} from './ResultLayers';
+describe('default layers',()=>{
+  it('starts with the slice off while retaining the other layer defaults',()=>{
+    expect(defaultLayers()).toEqual({walls:true,colors:true,streamlines:true,iso:true,slice:false});
+  });
+  it('allows enabling and disabling the slice without changing subsequent defaults',()=>{
+    const layers=defaultLayers();
+    layers.slice=true;expect(layers.slice).toBe(true);
+    expect(defaultLayers().slice).toBe(false);
+    layers.slice=false;expect(layers.slice).toBe(false);
+  });
+});
 describe('speed legend visibility',()=>{
   it('shows an enabled legend when either speed layer is enabled',()=>{
     for(const layers of [{streamlines:true,iso:true},{streamlines:true,iso:false},{streamlines:false,iso:true}])
