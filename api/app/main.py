@@ -26,6 +26,34 @@ def example():
     return Project()
 
 
+def surrogate_artifact():
+    path = DATA/'datasets/v1/s1-v1.json'
+    if not path.exists():
+        raise HTTPException(404, 'S1 artifact is not built yet')
+    return path
+
+
+@app.get('/api/surrogate/manifest')
+def surrogate_manifest():
+    try:
+        path = surrogate_artifact()
+    except HTTPException:
+        return {'version': 's1-v1', 'available': False, 'cases': 0}
+    try:
+        artifact = json.loads(path.read_text())
+        return {'version': artifact['version'], 'available': True, 'cases': len(artifact['cases']),
+                'built_at': artifact['built_at'], 'axes': artifact['axes'],
+                'availability': artifact['availability'], 'validation': artifact['validation'],
+                'artifact_url': '/api/surrogate/artifact', 'static_url': '/surrogate/s1-v1.json'}
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(503, 'Invalid S1 artifact') from exc
+
+
+@app.get('/api/surrogate/artifact')
+def surrogate_file():
+    return FileResponse(surrogate_artifact(), media_type='application/json', headers={'Cache-Control':'no-cache'})
+
+
 @app.post('/api/simulate', status_code=202)
 def simulate(project: Project):
     job_id = str(uuid.uuid4())

@@ -88,6 +88,24 @@ TRAIN_CPUS=6 TRAIN_MEMORY=12g docker compose --profile train up -d trainer
 
 `--reset-failed` 只做归档/重置然后退出：完整旧 manifest、失败/拒收/中断目录移动至 `audit/retry-*`，累计尝试次数从 0 开始；有效 accepted 结果及元数据保持原字节不变，并在 manifest migration 中记录保留名单及旧控制器指纹。只适用于明确批准的收敛控制升级；改变房间设计或物理模型仍应使用新版本/目录。
 
+### M1 / S1 即时查表预估
+
+`python -m trainer.build_s1 --root /data/datasets/v1` 只读取 accepted 记录；不会提交求解任务、取得训练锁或修改案例。输出 `s1-v1.json`，包含 24×20×12 单位房间中心网格、uint16/base64 θ（65535 为固体/缺测掩码）、每例比例/偏移、k、形状统计、64 个训练组合的明确 availability 和四种完整预设。θ=(T−T_out)/(CFD 空气均温−T_out)，k=Q_required/[UA_analytic·(T_set−T_out)]；保留 averaged CFD 的空间形状。B/D/F holdout 不进入查表。
+
+运行中的 trainer 不需要重建或停止。可从 API 容器读取当前数据生成快照，然后复制到前端：
+
+```sh
+docker compose run --rm --no-deps -v "$PWD:/review:ro" -w /review -e PYTHONPATH=/review/api:/review api python -m trainer.build_s1
+docker compose cp api:/data/datasets/v1/s1-v1.json frontend/public/surrogate/s1-v1.json
+docker compose up -d --build --no-deps api frontend
+```
+
+浏览器优先读取 `/api/surrogate/artifact`（named volume 当前快照），回退到构建时的 `/surrogate/s1-v1.json`；`GET /api/surrogate/manifest` 返回快照时间、availability、轴与验证结果。新案例不会自动进入已有快照，批次完成后重新构建/验证。房间/家具/窗户/暖器几何须在 **2 cm** 内匹配同一模板与位置；DPE 只按墙 U 在可用训练节点间线性插值 k 与 θ。区间内或已知精确节点为高置信度，超区间使用最近邻并标中，自定义/缺失分类组合则低置信度、不显示假预估。置信度表示插值覆盖条件，不是经过验证的误差保证。额定功率不影响 θ 或 k，只用于容量判定；功率不足时目标温度场不代表可达到的实际温度。M0 不含制冷，不对 T_set≤T_out 的工况生成供热预估。
+
+前端移植与 `models.py` 相同的 UA（含窗与 ACH）；T=T_out+(T_set−T_out)θ，Q_required=k·UA_user·(T_set−T_out)。每次输入修改都取消旧精算视图并重算预估；不会自动提交精算。表面、流线和等温面仅显示在 OpenFOAM 结果中。
+
+验证：`python -m trainer.validate_s1 --root /data/datasets/v1`。训练记录严格留一法，holdout 始终对只含训练记录的表验证；无同分类邻居会标记 unscored，不作为零误差。报告 θ 场误差乘基准 ΔT 的 RMSE（°C）、原始 CFD 温度场 RMSE、空气均温 MAE、功率 MAPE/最大相对误差及覆盖情况。当前仅有少量 accepted 节点，不能宣称达到完整数据集精度；批次完成后须重跑。测试：上述 pytest 命令以及 `cd frontend && npm ci && npm test && npm run build`（Node ≥22.12）。
+
 ### ParaView 风格平均场
 
 结果视图使用石板灰背景、温度着色边界、速度着色流线与半透明暖羽流等温面，配有白色虚线包围框、XYZ 方向器和带细刻度的温度/风速色标。墙面保持透明，可分别切换墙面、表面着色、流线、等温面和温度切片。旧结果缺少新字段时仍可显示几何与原有温度切片；不可用图层会禁用。
