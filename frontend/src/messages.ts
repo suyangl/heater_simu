@@ -1,4 +1,12 @@
 export const en = {
+  "planner.compareHint": "Ticking only compares; click “Apply selected plan” to change the project",
+  "planner.appliedDetail": "Applied: {measures}",
+  "planner.appliedTotals": "Season: {beforeKwh} → {afterKwh} kWh · {beforeEuro} → {afterEuro} €",
+  "planner.activeRetrofits": "Applied retrofits (seasonal RC only):",
+  "planner.windowTreatment": "Window treatment",
+  "planner.windowFactor": "window U ×{factor}",
+  "planner.achFactor": "ACH ×{factor}",
+  "planner.removeRetrofit": "Remove {measure}",
   "examples.exact": "OpenFOAM example result",
   "examples.noS1": "No S1 field for these inputs. The nearest bundled example ({summary}) requires matching design conditions to display its CFD field.",
   "examples.overlay": "Streamlines & isosurface from nearest OpenFOAM case ({summary}). Temperature field, surfaces and probe remain S1 estimates.",
@@ -398,6 +406,14 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "planner.compareHint": "勾选只做比较；点“应用所选计划”才会修改项目",
+  "planner.appliedDetail": "已应用：{measures}",
+  "planner.appliedTotals": "供暖季：{beforeKwh} → {afterKwh} kWh · {beforeEuro} → {afterEuro} €",
+  "planner.activeRetrofits": "已应用改造（仅影响季节 RC）：",
+  "planner.windowTreatment": "窗户改造",
+  "planner.windowFactor": "窗 U ×{factor}",
+  "planner.achFactor": "换气 ACH ×{factor}",
+  "planner.removeRetrofit": "移除{measure}",
   "examples.exact": "OpenFOAM 示例结果",
   "examples.noS1": "此输入暂无 S1 温度场。最接近的随包算例（{summary}）须完全匹配设计工况，才会显示其 CFD 温度场。",
   "examples.overlay": "流线/等温面取自最接近的 OpenFOAM 算例（{summary}）。温度场、表面着色和小人读数仍为 S1 预估。",
