@@ -9,6 +9,7 @@ import { capacityText, progressText, Runtime, settlementWarning } from './runSta
 import {LanguageProvider,useLanguage} from './Language';
 import {ApiError,formatError,translateWarning} from './i18n';
 import {furnitureDefaults,kindLabel,migrateKind,migrateProject} from './furniture';
+import {BillingPanel} from './BillingPanel';
 import './style.css';
 import './runStatus.css';
 
@@ -163,6 +164,7 @@ function App() {
       {result?<><div className="kpis"><div><span>{t("房间平均")}</span><strong>{result.kpi.room_average_c.toFixed(1)}<small> °C</small></strong></div><div><span>{t("最低 / 最高")}</span><strong>{result.T.min.toFixed(1)} / {result.T.max.toFixed(1)}<small> °C</small></strong></div><div><span>{isPrediction?t("热平衡"):t("热平衡误差")}</span><strong>{isPrediction?t("未精算"):`${(result.kpi.energy_balance_error*100).toFixed(1)} %`}</strong></div><div><span>{isPrediction?t("浏览器推断"):t("求解耗时 / 网格")}</span><strong>{isPrediction?`${prediction?.elapsed_ms.toFixed(2)} ms`:`${result.kpi.solve_wall_time_s.toFixed(0)} s / ${(result.kpi.cell_count/1000).toFixed(0)}k`}</strong></div></div><div className="slice-controls"><label>{t("切片高度")}{' '}{height.toFixed(2)} m <input type="range" min="0.05" max={p.room.height-.05} step="0.05" value={height} onChange={e=>setHeight(Number(e.target.value))}/></label><label><input type="checkbox" checked={vertical} onChange={e=>setVertical(e.target.checked)}/>{t("竖直切片（房间中线）")}</label></div></>:<p className="empty">{t("无可用预估，请精算。精算需数分钟；不会自动提交。")}</p>}
       {result&&<><div className="kpis"><div><span>{isPrediction?t("额定 / 预估所需功率"):t("额定 / CFD 恒温功率")}</span><strong>{result.kpi.rated_power_w.toFixed(0)} / {result.kpi.cfd_heater_power_w.toFixed(0)}<small> W</small></strong></div><div><span>{isPrediction?t("解析 UA 功率"):t("解析估计 / 调节次数")}</span><strong>{result.kpi.analytic_effective_power_w.toFixed(0)}<small> W{!isPrediction&&t(" / {v0} 次",{v0:result.kpi.thermostat_iterations})}</small></strong></div><div><span>{t("恒温占空比")}</span><strong>{(result.kpi.duty_cycle*100).toFixed(1)}<small> %</small></strong></div><div><span>{t("供暖能力")}</span><strong>{capacityText(result.kpi.insufficient_power,warning,language)}</strong></div></div><p className="hint">{isPrediction?t("S1 仅为无辐射对流模型预估。功率不足时显示的是目标温度场，不代表实际可达到温度；建议精算。"):t("M0 不含辐射；CFD 功率仅对应当前对流模型，解析估计用于 RC 初值。")}</p></>}
       {cfdResult?.kpi.heat_loss_groups_w&&<p className="hint">{t("散热分项：")}{Object.entries(cfdResult.kpi.heat_loss_groups_w).map(([group,w])=>t("{v0} {v1} W",{v0:t(({exterior_walls:'外墙',windows:'窗户',exterior_doors:'外门'} as Record<string,string>)[group]??group),v1:w.toFixed(1)})).join(' · ')}{t("（内门绝热）")}</p>}
-      {log&&<details><summary>{t("求解日志")}</summary><pre>{log}</pre></details>}</div></article></main></>;
+      {log&&<details><summary>{t("求解日志")}</summary><pre>{log}</pre></details>}</div>
+      <BillingPanel project={p} table={table} result={result} source={cfdResult?'CFD':isPrediction?'S1':'analytic'}/></article></main></>;
 }
 createRoot(document.getElementById('root')!).render(<LanguageProvider><App/></LanguageProvider>);

@@ -17,7 +17,7 @@ function unpack(row:Entry) {
   cache.set(row,values);return values;
 }
 export function prepare(table:Table) {for(const row of table.cases)unpack(row);return table;}
-export function ua(p:Project,table:Table) {
+export function ua(p:Project,table:Pick<Table,'axes'>) {
   const [wall,window]=table.axes.u_values[p.dpe]??[NaN,NaN],r=p.room;
   const walls=exteriorOf(p),openings=openingsOf(p).filter(o=>walls.includes(o.wall));
   const area=walls.reduce((sum,w)=>sum+(w==='N'||w==='S'?r.length:r.width)*r.height,0)-openings.reduce((sum,o)=>sum+o.width*o.height,0);
