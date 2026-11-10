@@ -108,12 +108,12 @@ export function PlanEditor({project:p,selected,disabled,canUndo,canRedo,onSelect
             <text x={0} y={0} transform={`translate(${b.x+.06},${b.y+b.w/2}) scale(1,-1)`} fontSize=".12" pointerEvents="none">{label(id)}</text>
             {selected===id&&[['sw',b.x,b.y],['se',b.x+b.l,b.y],['nw',b.x,b.y+b.w],['ne',b.x+b.l,b.y+b.w]].map(([c,x,y])=>handle(Number(x),Number(y),id,String(c)))}</g>;
         })}
+        {(()=>{const b=heaterBox(p);return <rect data-object="heater" className={style('heater')} x={b.x} y={b.y} width={Math.max(.01,b.l)} height={Math.max(.01,b.w)} fill="#ed9854" stroke="#8c4d1c" strokeWidth=".025" onPointerDown={e=>start(e,'heater')}/>;})()}
         {openingsOf(p).map((o,i)=>{
           const id:Selection=`opening-${i}`,shape=openingShape(o.wall,o.offset,o.width),end=openingShape(o.wall,o.offset+o.width,0);
           return <g key={id}><rect data-object={id} {...shape} className={style(id)} fill={o.type==='window'?'#58b8d6':exteriorOf(p).includes(o.wall)?'#bc893d':'#977eb8'} stroke="#274b59" strokeWidth=".02" onPointerDown={e=>start(e,id)}/>
             {selected===id&&<>{handle(shape.x,shape.y,id,'start')}{handle(end.x,end.y,id,'end')}</>}</g>;
         })}
-        {(()=>{const b=heaterBox(p);return <rect data-object="heater" className={style('heater')} x={b.x} y={b.y} width={Math.max(.01,b.l)} height={Math.max(.01,b.w)} fill="#ed9854" stroke="#8c4d1c" strokeWidth=".025" onPointerDown={e=>start(e,'heater')}/>;})()}
         {handle(p.room.length,p.room.width,'room','corner')}
         <text transform={`translate(${p.room.length/2},-.25) scale(1,-1)`} textAnchor="middle" fontSize=".13" fill="#274b59">{t('plan.x')}</text>
         <text transform={`translate(${p.room.length/2},${p.room.width+.25}) scale(1,-1)`} textAnchor="middle" fontSize=".13" fill="#274b59">{t('plan.north')}</text>
