@@ -51,7 +51,10 @@ export function applyMeasures(input:PlannerInput,measures:Measure[],assumptions:
   const initialComfort=s.followProject?p.heater.setpoint_c:s.schedule.comfort;
   const modifiers={...(s.envelope??UNMODIFIED)};
   for(const m of measures){
-    if(m.kind==='setpoint'){p.heater.setpoint_c=initialComfort-m.amount!;s.schedule.comfort=p.heater.setpoint_c;s.followProject=true;}
+    if(m.kind==='setpoint'){
+      s.schedule.comfort=initialComfort-m.amount!;
+      if(s.followProject)p.heater.setpoint_c=s.schedule.comfort;
+    }
     if(m.kind==='eco')s.schedule.eco=m.amount!;
     if(m.kind==='shorten')for(const pattern of ['weekdays','weekends'] as const){
       const selected=s.schedule[pattern].flatMap((on,h)=>on?[h]:[]);

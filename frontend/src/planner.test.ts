@@ -27,6 +27,20 @@ describe('saving planner scenarios',()=>{
     expect(c.scenario.project.heater.setpoint_c).toBe(19);expect(c.comfortPp).toBe(0);
     expect(c.payback).toBeNull();
   });
+  it('changes only independent billing comfort when followProject is off, preserving the CFD project',()=>{
+    const input=fixture(),prefs=restorePlanner(null);
+    input.settings.followProject=false;input.settings.schedule.comfort=22;
+    const before=JSON.stringify(input.project);
+    const independent=buildPlanner(input,prefs).candidates.find(c=>c.measure.id==='setpoint-1')!.apply();
+    expect(JSON.stringify(independent.project)).toBe(before);
+    expect(independent.settings.followProject).toBe(false);
+    expect(independent.settings.schedule.comfort).toBe(21);
+    input.settings.followProject=true;
+    const linked=buildPlanner(input,prefs).candidates.find(c=>c.measure.id==='setpoint-1')!.apply();
+    expect(linked.project.heater.setpoint_c).toBe(19);
+    expect(linked.settings.schedule.comfort).toBe(19);
+    expect(linked.settings.followProject).toBe(true);
+  });
   it('combined modifications equal direct RC simulation and do not sum individual savings',()=>{
     const input=fixture(),prefs=restorePlanner(null);
     const selected=measuresFor(input).filter(m=>['setpoint-1','curtains','draught'].includes(m.id));
