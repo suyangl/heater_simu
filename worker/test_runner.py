@@ -1,5 +1,9 @@
 import base64
 import json
+import os
+import re
+import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -81,6 +85,98 @@ class PostprocessTest(unittest.TestCase):
         self.flux.write_text('2 heater 0 0 0\n2 N 0 0 0\n2 window 0 0 0\n'
                              '3 heater 0 0 0\n3 N 0 0 0\n3 window 0 0 0\n')
         self.assertEqual(self.process()['kpi']['energy_balance_error'], 0)
+
+    def test_unsettled_postprocess_preserves_flag_and_selected_iteration(self):
+        meta = json.loads((self.path/'case_meta.json').read_text())
+        meta.update(not_settled=True, settlement_warning='budget exhausted', solve_budget_s=10)
+        (self.path/'case_meta.json').write_text(json.dumps(meta))
+        (self.path/'run.log').write_text('Time = 3\nTime = 7\n')
+        kpi = self.process()['kpi']
+        self.assertTrue(kpi['not_settled'])
+        self.assertEqual(kpi['settlement_warning'], 'budget exhausted')
+        self.assertEqual(kpi['iterations'], 3)
+        self.assertEqual(kpi['attempted_iterations'], 7)
+
+    def test_budget_before_first_measurement_returns_explicit_no_field(self):
+        solve_thermostat(self.path, 2, budget=0, settled=True, best_effort=True)
+        postprocess(self.path, 0)
+        result = json.loads((self.path/'result.json').read_text())
+        self.assertFalse(result['field_available'])
+        self.assertTrue(result['kpi']['not_settled'])
+        self.assertNotIn('T', result)
+        self.assertIn('尚无完整平均温度场', result['kpi']['settlement_warning'])
+
+    def fake_measurements(self, failure=None):
+        (self.path/'system').mkdir()
+        (self.path/'system/fvOptions').write_text('initial source')
+        self.blocks = 0
+        def command(args, path, timeout):
+            if args[0] == 'foamDictionary':
+                (path/'system/fvOptions').write_text(args[-1])
+            if args[0] != 'buoyantSimpleFoam':
+                return
+            self.blocks += 1
+            end = int(re.search(r'endTime (\d+)', (path/'system/controlDict').read_text())[1])
+            fields = path/str(end)
+            fields.mkdir()
+            for name in ('TMean', 'UMean', 'pMean'):
+                (fields/name).write_text(str(end))
+            if self.blocks == 4 and failure:
+                raise failure
+        return command
+
+    def test_timeout_restores_best_fields_source_power_and_averaging_window(self):
+        fake = self.fake_measurements(subprocess.TimeoutExpired('solver', 10))
+        with patch('runner.run', side_effect=fake), patch('runner.averaged_room_mean', side_effect=[22, 22.01, 19]), \
+                patch('runner.wall_heat_flux', return_value=(0, {'heater': 0, 'N': -405.3, 'window': 0})):
+            solve_thermostat(self.path, 1, settled=True, best_effort=True)
+        meta = json.loads((self.path/'case_meta.json').read_text())
+        self.assertTrue(meta['not_settled'])
+        self.assertEqual(meta['iterations'], 2500)
+        self.assertEqual(meta['average_start'], 1701)
+        self.assertEqual(meta['cfd_heater_power_w'], 405.3)
+        self.assertEqual(meta['thermostat_iterations'], 3)
+        self.assertEqual((self.path/'2500/TMean').read_text(), '2500')
+        self.assertEqual((self.path/'system/fvOptions').read_text(), '(405.3 0)')
+        self.assertFalse((self.path/'4500').exists())
+        self.assertEqual(json.loads((self.path/'progress.json').read_text())['completed_iterations'], 3500)
+
+    def test_successful_best_effort_is_settled(self):
+        fake = self.fake_measurements()
+        with patch('runner.run', side_effect=fake), patch('runner.averaged_room_mean', return_value=19), \
+                patch('runner.wall_heat_flux', return_value=(0, {'heater': 0, 'N': -405.3, 'window': 0})):
+            solve_thermostat(self.path, 1, settled=True, best_effort=True)
+        meta = json.loads((self.path/'case_meta.json').read_text())
+        self.assertFalse(meta['not_settled'])
+        self.assertEqual(meta['iterations'], 4500)
+        self.assertEqual(meta['average_start'], 2501)
+
+    def test_settled_interactive_uses_all_exterior_opening_losses(self):
+        fixture = Path(__file__).resolve().parents[1]/'api/tests/fixtures/corner_project.json'
+        (self.path/'project.json').write_text(fixture.read_text())
+        fake = self.fake_measurements()
+        values = {'heater': 0, 'N': -300, 'E': -200, 'window_0': -50, 'window_1': -50, 'door_2': -41.13}
+        with patch('runner.run', side_effect=fake), patch('runner.averaged_room_mean', return_value=19), \
+                patch('runner.wall_heat_flux', return_value=(0, values)) as flux:
+            solve_thermostat(self.path, 1, settled=True, best_effort=True)
+        self.assertEqual(flux.call_args.args[1], set(values))
+        meta = json.loads((self.path/'case_meta.json').read_text())
+        self.assertFalse(meta['not_settled'])
+        self.assertAlmostEqual(meta['thermostat_history'][-1]['heat_loss_w'], 641.13)
+
+    def test_solver_failure_is_not_published_as_budget_limited(self):
+        fake = self.fake_measurements(subprocess.CalledProcessError(1, 'solver'))
+        with patch('runner.run', side_effect=fake), patch('runner.averaged_room_mean', side_effect=[22, 22.01, 19]), \
+                patch('runner.wall_heat_flux', return_value=(0, {'heater': 0, 'N': -405.3, 'window': 0})):
+            with self.assertRaises(subprocess.CalledProcessError):
+                solve_thermostat(self.path, 1, settled=True, best_effort=True)
+
+    def test_invalid_budget_and_mode_are_rejected(self):
+        for budget in [-1, float('nan'), float('inf')]:
+            with self.assertRaises(ValueError):
+                solve_thermostat(self.path, 1, budget=budget)
+        with self.assertRaises(ValueError):
+            solve_thermostat(self.path, 1, best_effort=True)
 
     def test_power_rescaling_and_capacity(self):
         self.assertAlmostEqual(thermostat_power(405.3, 30.55, self.project), 405.3*14/25.55)
@@ -164,6 +260,29 @@ class PostprocessTest(unittest.TestCase):
             run([sys.executable, '-c', 'raise SystemExit(3)'], self.path)
         with self.assertRaises(subprocess.TimeoutExpired):
             run([sys.executable, '-c', 'import time; time.sleep(60)'], self.path, .05)
+
+    def test_timeout_kills_mpi_ranks_in_separate_process_groups(self):
+        code = 'import os,time;print("TIMEOUT_CHILD",os.getpid(),flush=True);time.sleep(60)'
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run(['mpirun', '--allow-run-as-root', '-np', '2', sys.executable, '-c', code], self.path, 2)
+        pids = [int(pid) for pid in re.findall(r'^TIMEOUT_CHILD (\d+)', (self.path/'run.log').read_text(), re.MULTILINE)]
+        try:
+            self.assertEqual(len(pids), 2)
+            for pid in pids:
+                try:
+                    fd = os.pidfd_open(pid)
+                except ProcessLookupError:
+                    continue
+                try:
+                    self.assertTrue(select.select([fd], [], [], 2)[0], f'MPI rank {pid} survived timeout')
+                finally:
+                    os.close(fd)
+        finally:
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 class SettledControlTest(unittest.TestCase):

@@ -22,6 +22,7 @@ services:
     environment:
       MAX_PARALLEL_JOBS: "1"
       OPENFOAM_NPROCS: "${OPENFOAM_NPROCS:-2}"
+      INTERACTIVE_SOLVE_BUDGET: "${INTERACTIVE_SOLVE_BUDGET:-2700}"
     cpus: 2
     mem_limit: 3g
   trainer:
