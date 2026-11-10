@@ -15,6 +15,7 @@ from app.foam_output import wall_heat_flux
 from app.case import control_dict, dictionary
 from app.models import Project
 from app.queue import DATA, connect, update
+from visualization import build_visualization
 
 
 def heartbeat():
@@ -189,7 +190,11 @@ def postprocess(path, elapsed):
                       'max_temperature_distance_to_heater_m': hot_distance,
                       'solve_wall_time_s': elapsed, 'cell_count': mesh.n_cells,
                       'iterations': int(iterations[-1]) if iterations else 0, 'final_residuals': residuals}}
-    (path/'result.json').write_text(json.dumps(result, allow_nan=False))
+    result.update(build_visualization(mesh, data['boundary'], project, sampled, mask, room_mean))
+    encoded = json.dumps(result, allow_nan=False)
+    if len(encoded.encode()) > 3000000:
+        raise ValueError('Visualization payload exceeds 3 MB')
+    (path/'result.json').write_text(encoded)
 
 
 def main():

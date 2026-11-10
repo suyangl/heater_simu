@@ -6,4 +6,5 @@ ENV PATH="/opt/venv/bin:${PATH}" PYTHONPATH=/app OMP_NUM_THREADS=1 OPENBLAS_NUM_
 WORKDIR /app
 COPY api/app app
 COPY worker/runner.py runner.py
+COPY worker/visualization.py visualization.py
 ENTRYPOINT ["/bin/bash", "-c", "source /usr/lib/openfoam/openfoam2406/etc/bashrc && exec python /app/runner.py"]

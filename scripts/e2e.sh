@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 docker compose up -d --build
 docker compose exec -T api python - <<'PY'
+import base64
 import json
 import time
 import urllib.request
@@ -49,6 +50,12 @@ assert kpi['energy_balance_error'] < .1, 'energy balance error >10%'
 assert 1.0 < kpi['air_density_min'] <= kpi['air_density_max'] < 1.35, 'air density outside plausible range'
 assert kpi['average_end'] > kpi['average_start'] > 0
 assert kpi['cell_count'] <= 150000
-assert len(json.dumps(result)) < 1000000
+payload_bytes = len(json.dumps(result).encode())
+assert payload_bytes < 3000000
+assert len(base64.b64decode(result['U']['data'])) == result['grid']['nx']*result['grid']['ny']*result['grid']['nz']*4
+assert result['surfaces'] and all(s['triangle_count'] > 0 for s in result['surfaces'])
+assert 100 <= result['streamlines']['line_count'] <= 200
+assert result['isosurface']['triangle_count'] > 0
+print('Visualization payload bytes:', payload_bytes, 'surfaces:', len(result['surfaces']), 'streamlines:', result['streamlines']['line_count'], flush=True)
 print('E2E PASS', flush=True)
 PY
