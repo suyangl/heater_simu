@@ -1,5 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {predict,prepare,ua,Table,Project,openingsOf} from './s1';
+import {capacityText,settlementWarning} from './runStatus';
 
 const project:Project={room:{length:4,width:3.5,height:2.5},exterior_wall:'N',window:{offset:1.2,width:1.2,height:1.35,sill:.9},dpe:'F',outdoor_temp:5,heater:{power_w:1500,setpoint_c:19,wall:'N',offset:1.3,z:.15,length:.8,depth:.1,height:.5},furniture:[]};
 function fixture():Table {
@@ -10,6 +11,17 @@ function fixture():Table {
       {id:'c',template:'room',position:'under_window',dpe:'C',wall_u:.35,k:.7,theta:{min:1,scale:1,data:btoa('\0'.repeat(16))}}]};
 }
 describe('S1 physical scaling and confidence',()=>{
+  it('does not substitute S1 capacity for a fieldless unsettled CFD result',()=>{
+    const warning=settlementWarning({kpi:{not_settled:true}});
+    const p=structuredClone(project);
+    for(const rated of [1500,10]){
+      p.heater.power_w=rated;
+      const field=predict(p,fixture()).field!;
+      expect(field).not.toBeNull();
+      expect(capacityText(field.kpi.insufficient_power,warning)).toBe('尚未确认');
+      expect(capacityText(field.kpi.insufficient_power,'')).toBe(rated===10?'功率不足':'功率充足');
+    }
+  });
   it('matches canonical legacy openings but rejects additional openings and exterior walls',()=>{
     const p=structuredClone(project);p.openings=openingsOf(p);p.exterior_walls=['N'];
     expect(predict(p,fixture()).confidence).toBe('中');

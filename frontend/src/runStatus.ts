@@ -14,3 +14,7 @@ export function progressText(runtime:Runtime|null):string {
 export function settlementWarning(result:{kpi?:{not_settled?:boolean;settlement_warning?:string}}):string {
   return result.kpi?.not_settled?(result.kpi.settlement_warning||'结果尚未稳定，不能视为已收敛；请增加求解预算后重算。'):'';
 }
+
+export function capacityText(insufficientPower:boolean,warning:string):string {
+  return warning?'尚未确认':insufficientPower?'功率不足':'功率充足';
+}
