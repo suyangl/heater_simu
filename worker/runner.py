@@ -35,7 +35,18 @@ def run(command, path, timeout=1200):
             try:
                 code = process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    os.kill(process.pid, signal.SIGSTOP)
+                except ProcessLookupError:
+                    pass
+                for pid in os.listdir('/proc'):
+                    if not pid.isdigit():
+                        continue
+                    try:
+                        if os.getsid(int(pid)) == process.pid:
+                            os.kill(int(pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                 process.wait()
                 raise
             if code:

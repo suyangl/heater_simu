@@ -1,6 +1,9 @@
 import base64
 import json
+import os
 import re
+import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -257,6 +260,29 @@ class PostprocessTest(unittest.TestCase):
             run([sys.executable, '-c', 'raise SystemExit(3)'], self.path)
         with self.assertRaises(subprocess.TimeoutExpired):
             run([sys.executable, '-c', 'import time; time.sleep(60)'], self.path, .05)
+
+    def test_timeout_kills_mpi_ranks_in_separate_process_groups(self):
+        code = 'import os,time;print("TIMEOUT_CHILD",os.getpid(),flush=True);time.sleep(60)'
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run(['mpirun', '--allow-run-as-root', '-np', '2', sys.executable, '-c', code], self.path, 2)
+        pids = [int(pid) for pid in re.findall(r'^TIMEOUT_CHILD (\d+)', (self.path/'run.log').read_text(), re.MULTILINE)]
+        try:
+            self.assertEqual(len(pids), 2)
+            for pid in pids:
+                try:
+                    fd = os.pidfd_open(pid)
+                except ProcessLookupError:
+                    continue
+                try:
+                    self.assertTrue(select.select([fd], [], [], 2)[0], f'MPI rank {pid} survived timeout')
+                finally:
+                    os.close(fd)
+        finally:
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 class SettledControlTest(unittest.TestCase):
