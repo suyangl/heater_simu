@@ -1,4 +1,6 @@
 export const en = {
+  "s1.approxSurfaces": "Surface colours (approx.)",
+  "s1.surfaceCaveat": " Surface colours sample nearby air, not physical surface temperatures.",
   "static.loadTemplate": "Load template",
   "static.title": "Static demo · instant S1 only",
   "static.notice": "Static demo — instant S1 estimates only; run the Docker version locally for OpenFOAM.",
@@ -389,6 +391,8 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "s1.approxSurfaces": "表面着色（近似）",
+  "s1.surfaceCaveat": "表面着色取自邻近空气温度，非物理表面温度。",
   "static.loadTemplate": "载入模板",
   "static.title": "静态演示 · 仅 S1 即时预估",
   "static.notice": "静态演示 — 仅提供 S1 即时预估；如需 OpenFOAM 精算，请在本机运行 Docker 版本。",
