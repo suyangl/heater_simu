@@ -1,4 +1,5 @@
 export const en = {
+  "风速色标": "Speed legend",
   "planner.clearSelection": "Clear selection",
   "planner.combinationUnavailable": "This combination cannot be estimated with the available S1 heating data (for example, its target is at or below the outdoor temperature). Deselect a measure or clear the selection; individual measures remain available.",
   "planner.title": "Saving planner",
@@ -343,6 +344,7 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "风速色标": "风速色标",
   "planner.clearSelection": "清空选择",
   "planner.combinationUnavailable": "现有 S1 供热数据无法估算此组合（例如组合目标温度不高于室外温度）。请取消一项措施或清空选择；仍可查看和选择各项措施。",
   "planner.title": "省电规划",
