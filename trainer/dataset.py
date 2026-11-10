@@ -94,6 +94,7 @@ def run_case(root, case, execute=execute_case):
     record = {**record, **case, 'analytic_ua_w_k': thermal['ua_total'],
               'analytic_power_w': thermal['ua_total']*(project.heater.setpoint_c-project.outdoor_temp),
               'solver_policy': training_policy(),
+              'physics_sha256': read_json(Path(root)/'manifest.json').get('physics_sha256'),
               'updated_at': time.time()}
     attempts = record.get('attempts', 0)
     if record.get('status') == 'running':
@@ -192,9 +193,12 @@ def prepare(root, definition, plan, reset_failed=False):
         for case in plan:
             directory = root/'cases'/case['id']
             record = read_json(directory/'metadata.json')
-            if complete(directory, record):
+            physics_ok = (old.get('physics_sha256') == manifest['physics_sha256']
+                          or record.get('physics_sha256') == manifest['physics_sha256'])
+            if (complete(directory, record) and physics_ok
+                    and record.get('solver_policy') == manifest['solver_policy']):
                 retained.append(case['id'])
-            elif record and record.get('attempts', 0):
+            elif record and (record.get('attempts', 0) or record.get('status') == 'accepted'):
                 target = archive/'cases'/case['id']
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(directory), target)

@@ -197,3 +197,20 @@ def test_invalid_training_budget_rejected(monkeypatch, value):
 def test_configurable_training_budget(monkeypatch):
     monkeypatch.setenv('TRAIN_SOLVE_BUDGET', '5400')
     assert training_policy() == {'mode': 'settled', 'budget_s': 5400}
+
+
+def test_reset_reruns_accepted_results_from_old_physics(tmp_path):
+    definition = load_definition()
+    plan = cases()[:1]
+    prepare(tmp_path, definition, plan)
+    run_case(tmp_path, plan[0], lambda *_: valid_result())
+    case_dir = tmp_path/'cases'/plan[0]['id']
+    record = json.loads((case_dir/'metadata.json').read_text())
+    record['physics_sha256'] = 'old-controller-hash'
+    write_json(case_dir/'metadata.json', record)
+    manifest = json.loads((tmp_path/'manifest.json').read_text())
+    manifest['physics_sha256'] = 'old-controller-hash'
+    write_json(tmp_path/'manifest.json', manifest)
+    prepare(tmp_path, definition, plan, reset_failed=True)
+    reset = json.loads((case_dir/'metadata.json').read_text())
+    assert reset['status'] == 'pending' and not (case_dir/'result.json').exists()
