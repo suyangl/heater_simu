@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -109,9 +110,42 @@ def settled_control(project, power, measure):
     raise RuntimeError('Settled thermostat did not converge within 60 measurement blocks')
 
 
-def solve_thermostat(path, nprocs, budget=1200, settled=False):
+def runtime_progress(path, phase, **values):
+    target = path/'progress.json'
+    now = time.time()
+    data = json.loads(target.read_text()) if target.exists() else {'started_at': now}
+    data.update(phase=phase, updated_at=now, **values)
+    temporary = path/'.progress.json.tmp'
+    temporary.write_text(json.dumps(data, allow_nan=False))
+    temporary.replace(target)
+
+
+def checkpoint_fields(path, point):
+    fields = path/str(point['end_iteration'])
+    for name in ('TMean', 'UMean', 'pMean'):
+        if not (fields/name).is_file():
+            raise ValueError('Completed measurement is missing averaged fields')
+    temporary, target = path/'.checkpoint-next', path/'.checkpoint'
+    shutil.copytree(fields, temporary)
+    if target.exists():
+        shutil.rmtree(target)
+    temporary.rename(target)
+    shutil.copy2(path/'system/fvOptions', path/'.checkpoint-source')
+
+
+def restore_checkpoint(path, point):
+    for fields in path.iterdir():
+        if fields.is_dir() and re.fullmatch(r'\d+(?:\.\d+)?', fields.name) and float(fields.name) > 0:
+            shutil.rmtree(fields)
+    shutil.copytree(path/'.checkpoint', path/str(point['end_iteration']))
+    shutil.copy2(path/'.checkpoint-source', path/'system/fvOptions')
+
+
+def solve_thermostat(path, nprocs, budget=1200, settled=False, best_effort=False):
     if nprocs not in (1, 2):
         raise ValueError('M0 supports OPENFOAM_NPROCS=1 or 2')
+    if not np.isfinite(budget) or budget < 0 or best_effort and not settled:
+        raise ValueError('Invalid thermostat budget or controller mode')
     project = Project.model_validate_json((path/'project.json').read_text())
     started = time.monotonic()
     deadline = started+budget
@@ -120,15 +154,20 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False):
         if remaining <= 0:
             raise TimeoutError('CFD thermostat exceeded its wall-time budget')
         run(command, path, remaining)
-    if nprocs == 2:
-        execute(['decomposePar'])
     (path/'case.foam').touch()
     power = project.thermal()['effective_power_w']
     loss_patches = project.loss_patches(json.loads((path/'case_meta.json').read_text()).get('patches'))
     history = []
     end = 0
+    decomposed = False
+    best, best_score = None, float('inf')
+    not_settled = False
+    warning = ''
     def block(length, samples):
-        nonlocal end
+        nonlocal end, decomposed
+        if nprocs == 2 and not decomposed:
+            execute(['decomposePar'])
+            decomposed = True
         end += length
         start = end-samples+1
         (path/'system/controlDict').write_text(dictionary('controlDict', control_dict(end, start)))
@@ -143,7 +182,7 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False):
         return start, mean
     if settled:
         def measure(q, length, samples, phase):
-            nonlocal power
+            nonlocal power, best, best_score
             power = q
             start, mean = block(length, samples)
             _, flux = wall_heat_flux(path, {'heater', *loss_patches}, (start, end))
@@ -153,8 +192,41 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False):
                      'energy_balance_error': abs(loss-power)/max(abs(power), 1e-9)}
             history.append(point)
             (path/'thermostat.json').write_text(json.dumps(history, allow_nan=False))
+            if best_effort:
+                previous = history[-2] if len(history) > 1 else None
+                drift = abs(mean-previous['room_mean_c']) if previous and previous['power_w'] == power else 1.
+                target_error = abs(mean-project.heater.setpoint_c)
+                if project.heater.setpoint_c <= project.outdoor_temp or (power >= project.heater.power_w and mean < project.heater.setpoint_c):
+                    target_error = 0.
+                score = target_error/.5+point['energy_balance_error']/.1+drift/.15
+                if score < best_score:
+                    checkpoint_fields(path, point)
+                    best, best_score = dict(point), score
+                runtime_progress(path, 'solving', completed_iterations=end, measured_mean_c=mean, power_w=power)
             return point
-        final = settled_control(project, power, measure)
+        try:
+            final = settled_control(project, power, measure)
+        except (TimeoutError, subprocess.TimeoutExpired):
+            if not best_effort:
+                raise
+            not_settled = True
+            warning = '求解预算已耗尽，结果尚未稳定；请增加预算后重算，不应视为恒温或热平衡已通过。'
+            final = best
+        except RuntimeError as exc:
+            if not best_effort or str(exc) != 'Settled thermostat did not converge within 60 measurement blocks':
+                raise
+            not_settled = True
+            warning = '已达稳定性测量上限，结果尚未稳定；请增加预算后重算。'
+            final = best
+        if final is None:
+            meta = json.loads((path/'case_meta.json').read_text())
+            meta.update(not_settled=True, field_available=False, settlement_warning=warning+' 尚无完整平均温度场。',
+                        thermostat_mode='settled', solve_budget_s=budget)
+            (path/'case_meta.json').write_text(json.dumps(meta, allow_nan=False))
+            return time.monotonic()-started
+        if not_settled:
+            restore_checkpoint(path, final)
+            end, power = final['end_iteration'], final['power_w']
         average_start, final_mean = final['average_start'], final['room_mean_c']
     else:
         for attempt in range(8):
@@ -169,18 +241,26 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False):
             raise RuntimeError('CFD thermostat did not settle within eight control blocks')
         average_start, final_mean = block(600, 600)
     insufficient = power >= project.heater.power_w*(1-1e-9) and final_mean < project.heater.setpoint_c-.5
-    if project.heater.setpoint_c > project.outdoor_temp and not insufficient and abs(final_mean-project.heater.setpoint_c) > .5:
+    if not not_settled and project.heater.setpoint_c > project.outdoor_temp and not insufficient and abs(final_mean-project.heater.setpoint_c) > .5:
         raise RuntimeError(f'Final thermostat averaging drifted from setpoint: {final_mean:.3f} C')
     meta = json.loads((path/'case_meta.json').read_text())
     meta.update(average_start=average_start, iterations=end, cfd_heater_power_w=power,
                 thermostat_mode='settled' if settled else 'interactive',
                 thermostat_iterations=len(history), insufficient_power=insufficient,
                 thermostat_history=history)
+    if best_effort:
+        meta.update(not_settled=not_settled, field_available=True, settlement_warning=warning, solve_budget_s=budget)
     (path/'case_meta.json').write_text(json.dumps(meta, allow_nan=False))
     return time.monotonic()-started
 
 
 def postprocess(path, elapsed):
+    meta = json.loads((path/'case_meta.json').read_text())
+    if meta.get('field_available') is False:
+        (path/'result.json').write_text(json.dumps({'source': 'openfoam', 'field_available': False,
+            'kpi': {'not_settled': True, 'settlement_warning': meta['settlement_warning'],
+                    'solve_wall_time_s': elapsed, 'solve_budget_s': meta['solve_budget_s']}}))
+        return
     project = Project.model_validate_json((path/'project.json').read_text())
     (path/'case.foam').touch()
     reader = pv.OpenFOAMReader(str(path/'case.foam'))
@@ -259,6 +339,12 @@ def postprocess(path, elapsed):
                       'solve_wall_time_s': elapsed, 'cell_count': mesh.n_cells,
                       'iterations': int(iterations[-1]) if iterations else 0, 'final_residuals': residuals}}
     result.update(build_visualization(mesh, data['boundary'], project, sampled, mask, room_mean))
+    if 'not_settled' in meta:
+        result['kpi'].update(not_settled=meta['not_settled'], settlement_warning=meta['settlement_warning'],
+                             solve_budget_s=meta['solve_budget_s'])
+        if meta['not_settled']:
+            result['kpi']['attempted_iterations'] = result['kpi']['iterations']
+            result['kpi']['iterations'] = meta['iterations']
     encoded = json.dumps(result, allow_nan=False)
     if len(encoded.encode()) > 3000000:
         raise ValueError('Visualization payload exceeds 3 MB')
@@ -283,15 +369,24 @@ def main():
         job_id = row['id']
         path = DATA/job_id
         try:
+            budget = float(os.environ.get('INTERACTIVE_SOLVE_BUDGET', '2700'))
+            if not np.isfinite(budget) or budget <= 0:
+                raise ValueError('INTERACTIVE_SOLVE_BUDGET must be finite and positive')
+            nprocs = int(os.environ.get('OPENFOAM_NPROCS', '2'))
+            cells = json.loads((path/'case_meta.json').read_text())['cell_count']
+            runtime_progress(path, 'meshing', estimated_total_s=1800*cells/78458*2/nprocs+60, budget_s=budget)
             run(['blockMesh'], path, 120)
             run(['topoSet'], path, 120)
             update(job_id, 'solving', .15)
-            nprocs = int(os.environ.get('OPENFOAM_NPROCS', '2'))
-            elapsed = solve_thermostat(path, nprocs)
+            runtime_progress(path, 'solving')
+            elapsed = solve_thermostat(path, nprocs, budget=budget, settled=True, best_effort=True)
             update(job_id, 'postprocessing', .9)
+            runtime_progress(path, 'postprocessing')
             postprocess(path, elapsed)
+            runtime_progress(path, 'done')
             update(job_id, 'done', 1)
         except Exception as exc:
+            runtime_progress(path, 'failed')
             with (path/'run.log').open('a') as f:
                 f.write(traceback.format_exc())
             update(job_id, 'failed', 1, str(exc))

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,24 @@ def test_case(tmp_path: Path, wall):
 def test_furniture_patches(tmp_path):
     meta = generate(Project(), tmp_path)
     assert 'furniture' in meta['patches']
+
+
+@pytest.mark.parametrize('state,elapsed', [('solving', 40), ('done', 25), ('failed', 25)])
+def test_live_and_finished_runtime(tmp_path, monkeypatch, state, elapsed):
+    monkeypatch.setattr('app.main.DATA', tmp_path)
+    monkeypatch.setattr('app.queue.DATA', tmp_path)
+    monkeypatch.setattr('app.main.time.time', lambda: 140)
+    directory = tmp_path/'timed'
+    directory.mkdir()
+    (directory/'project.json').write_text(Project().model_dump_json())
+    (directory/'progress.json').write_text(json.dumps({'started_at': 100, 'updated_at': 125,
+        'estimated_total_s': 1800, 'budget_s': 2700}))
+    with connect() as db:
+        db.execute('INSERT INTO jobs VALUES (?, ?, ?, ?, ?)', ('timed', state, .15, None, 100))
+    runtime = TestClient(app).get('/api/jobs/timed').json()['runtime']
+    assert runtime['elapsed_s'] == elapsed
+    assert runtime['estimated_total_s'] == 1800
+    assert runtime['budget_s'] == 2700
 
 
 def test_cfd_coefficient_guard():

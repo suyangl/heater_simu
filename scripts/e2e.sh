@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-docker compose up -d --build
+docker compose up -d --build --no-deps api frontend worker
 docker compose exec -T api python - <<'PY'
 import base64
 import json
@@ -27,17 +27,21 @@ with urllib.request.urlopen(request) as response:
     job_id = json.load(response)['job_id']
 print('job_id:', job_id, flush=True)
 started = time.monotonic()
-while time.monotonic()-started < 1350:
+timeout = 3900
+while time.monotonic()-started < timeout:
     job = get('/jobs/'+job_id)
+    timeout = max(timeout, job.get('runtime', {}).get('budget_s', 0)+300)
     if job['status'] == 'failed':
         raise RuntimeError(json.dumps(job, ensure_ascii=False))
     if job['status'] == 'done':
         break
     time.sleep(3)
 else:
-    raise TimeoutError('CFD exceeded 1350 seconds')
+    raise TimeoutError(f'CFD exceeded {timeout} seconds')
 result = get('/jobs/'+job_id+'/result')
 kpi = result['kpi']
+assert not kpi['not_settled'], kpi['settlement_warning']
+assert kpi['thermostat_mode'] == 'settled'
 print(json.dumps({'temperature': {k:v for k,v in result['T'].items() if k!='data'}, 'kpi': kpi}, indent=2), flush=True)
 if not kpi['insufficient_power']:
     assert abs(kpi['room_average_c']-example['heater']['setpoint_c']) <= .5, 'thermostat mean differs from setpoint by >0.5 C'

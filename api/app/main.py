@@ -82,6 +82,11 @@ def find(job_id):
 def job(job_id: str):
     row = find(job_id)
     row['project'] = json.loads((DATA/row['id']/'project.json').read_text())
+    progress = DATA/row['id']/'progress.json'
+    if progress.exists():
+        runtime = json.loads(progress.read_text())
+        stop = runtime['updated_at'] if row['status'] in ('done', 'failed') else time.time()
+        row['runtime'] = {**runtime, 'elapsed_s': max(0, stop-runtime['started_at'])}
     log = DATA/row['id']/'run.log'
     if log.exists():
         with log.open('rb') as f:
