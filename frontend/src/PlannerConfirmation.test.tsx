@@ -39,8 +39,26 @@ describe('applied planner confirmation',()=>{
     const confirmation=appliedConfirmation(measures,input,before,after,input);
     const updated=refreshConfirmation(confirmation,plannerInputKey(input),{...after,consumption:{kwh:560}});
     expect(updated!.after.kwh).toBe(560);expect(updated!.before.kwh).toBe(683.3);
-    expect(refreshConfirmation(confirmation,'unrelated edit',after)).toBe(confirmation);
+    expect(refreshConfirmation(confirmation,'unrelated edit',after)).toBeNull();
     expect(refreshConfirmation(null,plannerInputKey(input),after)).toBeNull();
+  });
+  it('clears applied savings after individual retrofit removal, resetting all retrofits, or undoing project/settings changes',()=>{
+    const state={project:{...project,heater:{...project.heater,setpoint_c:17}},
+      settings:{...input.settings,envelope:{windowFactor:.85,achFactor:.8}}};
+    const confirmation=appliedConfirmation(measures,input,before,after,state);
+    expect(refreshConfirmation(confirmation,plannerInputKey(state),after)).toBe(confirmation);
+    const changes=[
+      {...state,settings:{...state.settings,envelope:removeRetrofit(state.settings.envelope,'windowFactor')}},
+      {...state,settings:{...state.settings,envelope:removeRetrofit(state.settings.envelope,'achFactor')}},
+      {...state,settings:{...state.settings,envelope:undefined}},
+      {...state,project},
+      {...state,settings:{...state.settings,schedule:{...state.settings.schedule,comfort:20}}}
+    ];
+    for(const changed of changes){
+      expect(refreshConfirmation(confirmation,plannerInputKey(changed),after)).toBeNull();
+      expect(refreshConfirmation(confirmation,plannerInputKey(changed))).toBeNull();
+    }
+    expect(refreshConfirmation(confirmation,plannerInputKey(state))).toBe(confirmation);
   });
 });
 describe('visible applied retrofits',()=>{

@@ -20,8 +20,9 @@ export function appliedConfirmation(measures:Measure[],input:PlannerInput,before
   return {titles:{zh:measures.map(m=>measureTitle(m,input,'zh')),en:measures.map(m=>measureTitle(m,input,'en'))},
     before:totals(before),after:totals(after),inputKey:plannerInputKey(state)};
 }
-export function refreshConfirmation(current:Confirmation|null,inputKey:string,baseline:Season):Confirmation|null {
-  if(!current||current.inputKey!==inputKey)return current;
+export function refreshConfirmation(current:Confirmation|null,inputKey:string,baseline?:Season):Confirmation|null {
+  if(!current||current.inputKey!==inputKey)return null;
+  if(!baseline)return current;
   const after=totals(baseline);
   return current.after.kwh===after.kwh&&current.after.euros===after.euros?current:{...current,after};
 }

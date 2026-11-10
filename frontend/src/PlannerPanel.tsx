@@ -17,7 +17,7 @@ export function PlannerPanel({input,onApply,onRemoveRetrofit}:{input:PlannerInpu
     new Intl.NumberFormat(language==='zh'?'zh-CN':'en-GB',{minimumFractionDigits:digits,maximumFractionDigits:digits}).format(value);
   const title=(m:Measure)=>measureTitle(m,input,language);
   const inputKey=plannerInputKey(input),baseline=evaluated.data?.baseline;
-  useEffect(()=>{if(baseline)setApplied(current=>refreshConfirmation(current,inputKey,baseline));},[inputKey,baseline]);
+  useEffect(()=>{setApplied(current=>refreshConfirmation(current,inputKey,baseline));},[inputKey,baseline]);
   const apply=(state:ReturnType<typeof applyMeasures>,measures:Measure[],after:NonNullable<typeof baseline>)=>{
     if(!baseline)return;
     setApplied(appliedConfirmation(measures,input,baseline,after,state));
@@ -35,7 +35,7 @@ export function PlannerPanel({input,onApply,onRemoveRetrofit}:{input:PlannerInpu
     {!!retrofits.length&&<div className="planner-tip active-retrofits"><strong>{t('planner.activeRetrofits')}</strong>{retrofits.map(m=><p key={m.key}>
       {t(m.title)} ({t(m.unit,{factor:fmt(m.factor,3)})}){' '}<button onClick={()=>onRemoveRetrofit(m.key)}>{t('planner.removeRetrofit',{measure:t(m.title)})}</button>
     </p>)}</div>}
-    {applied&&<PlannerConfirmation confirmation={applied} language={language}/>}
+    {applied?.inputKey===inputKey&&<PlannerConfirmation confirmation={applied} language={language}/>}
     {evaluated.error&&<p className="error" role="alert">{t(evaluated.error)}</p>}
     <button disabled={!preferences.selected.length} onClick={()=>{setPreferences(p=>({...p,selected:[]}));setApplied(null);}}>{t('planner.clearSelection')}</button>
     {evaluated.data&&<>
