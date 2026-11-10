@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Canvas } from '@react-three/fiber';
 import { Edges, GizmoHelper, GizmoViewport, Html, OrbitControls } from '@react-three/drei';
@@ -15,6 +15,7 @@ import {Selection,commit,historyOf,undo,redo} from './plan';
 import {clampPosition,makeSampler,readProbe,restoreProbe,ProbeReading,ProbeSettings} from './probe';
 import {ProbeFigure,ProbePanel} from './ProbeFigure';
 import {deployment} from './deployment';
+import {chooseStaticTemplate,restoreStaticProject,staticProjectTemplate,STATIC_PROJECT_STORAGE} from './staticProject';
 import './style.css';
 import './runStatus.css';
 
@@ -111,31 +112,51 @@ function App() {
   const wallNames:Record<Wall,string> = {N:t("北墙 N"),S:t("南墙 S"),E:t("东墙 E"),W:t("西墙 W")};
   const templateNames:Record<string,string> = {bedroom_small:t("小卧室 · 3.5 × 3"),bedroom:t("卧室 · 4 × 3.5"),living:t("客厅 · 5 × 4"),study:t("书房 · 3 × 2.5")};
   const positionNames:Record<string,string> = {under_window:t("窗下"),beside_window:t("外墙窗旁"),opposite_wall:t("对面内墙"),interior_corner:t("内墙角落")};
-  const [history,setHistory]=useState(()=>historyOf(initial)),[draft,setDraft]=useState<Project|null>(null),[selection,setSelection]=useState<Selection|null>(null);
+  const [restoredProject]=useState(()=>{try{return deployment.staticMode?restoreStaticProject(localStorage.getItem(STATIC_PROJECT_STORAGE)):null;}catch{return null;}});
+  const [staticReady,setStaticReady]=useState(!deployment.staticMode||!!restoredProject),startupEdited=useRef(false);
+  const [history,setHistory]=useState(()=>historyOf(restoredProject??initial)),[draft,setDraft]=useState<Project|null>(null),[selection,setSelection]=useState<Selection|null>(null);
   const p=draft??history.present;
   const [cfdResult,setResult]=useState<Result|null>(null),[jobId,setJobId]=useState<string|null>(null);
   const [table,setTable]=useState<Table|null>(null),[tableError,setTableError]=useState(''),[template,setTemplate]=useState(''),[position,setPosition]=useState('under_window');
   const [status,setStatus]=useState(t("就绪")),[progress,setProgress]=useState(0),[error,setError]=useState<unknown>(null),[log,setLog]=useState('');
   const [timing,setTiming]=useState<Runtime|null>(null),[warning,setWarning]=useState('');
   const [height,setHeight]=useState(1.1),[vertical,setVertical]=useState(false),[busy,setBusy]=useState(false);
-  const [layers,setLayers]=useState<Layers>(defaultLayers);
+  const [layers,setLayers]=useState<Layers>(()=>defaultLayers(deployment.staticMode));
   const [speedLegend,setSpeedLegend]=useState(true),[person,setPerson]=useState(true);
   const [probe,setProbe]=useState(()=>{try{return restoreProbe(localStorage.getItem('heatsimu.probe.v1'),initial.room);}catch{return restoreProbe(null,initial.room);}});
   useEffect(()=>{try{localStorage.setItem('heatsimu.probe.v1',JSON.stringify(probe));}catch{}},[probe]);
   useEffect(()=>{setProbe(s=>({...s,...clampPosition(s,p.room)}));},[p.room.length,p.room.width]);
+  const staticTemplate=useMemo(()=>deployment.staticMode&&table?chooseStaticTemplate(table):null,[table]);
+  useEffect(()=>{if(deployment.staticMode&&staticReady){try{localStorage.setItem(STATIC_PROJECT_STORAGE,JSON.stringify({version:1,project:history.present}));}catch{}}},[history.present,staticReady]);
   const prediction=useMemo(()=>table?predict(history.present,table,language):null,[history.present,table,language]);
   const committedResult:Result|null=cfdResult??prediction?.field??null;
   const result:Result|null=draft?null:committedResult;
   const isPrediction=!draft&&!cfdResult&&!!prediction?.field;
   const sample=useMemo(()=>makeSampler(result,p.furniture),[result,p.furniture]);
   const probeReading=useMemo(()=>readProbe(sample,p,probe),[sample,p,probe]);
-  useEffect(()=>{void deployment.loadArtifact().then(data=>setTable(prepare(data))).catch(()=>setTableError(t(deployment.staticMode?"static.tableUnavailable":"预估表尚不可用，请精算")));},[]);
+  useEffect(()=>{void deployment.loadArtifact().then(data=>{
+    const prepared=prepare(data);setTable(prepared);
+    if(deployment.staticMode){
+      if(!startupEdited.current){
+        const selected=restoredProject?null:chooseStaticTemplate(prepared),project=restoredProject??selected?.project;
+        if(project){
+          if(!restoredProject)setHistory(historyOf(project));
+          const match=staticProjectTemplate(project,prepared);setTemplate(match.template);setPosition(match.position);
+        }
+      }
+      setStaticReady(true);
+    }
+  }).catch(()=>setTableError(t(deployment.staticMode?"static.tableUnavailable":"预估表尚不可用，请精算")));},[]);
   function invalidate() {setResult(null);setJobId(null);setProgress(0);setLog('');setStatus(t("输入已更新"));setError('');setTiming(null);setWarning('');window.history.replaceState(null,'',window.location.pathname);}
-  function change(next:Project) {if(JSON.stringify(next)===JSON.stringify(history.present))return;setHistory(h=>commit(h,next));invalidate();}
+  function change(next:Project) {if(JSON.stringify(next)===JSON.stringify(history.present))return;startupEdited.current=true;setHistory(h=>commit(h,next));invalidate();}
   function travel(direction:'undo'|'redo') {if(direction==='undo'?!history.past.length:!history.future.length)return;setDraft(null);setHistory(h=>direction==='undo'?undo(h):redo(h));invalidate();}
   function selectPlan(id:Selection|null) {
     setSelection(id);
     if(id)document.querySelector<HTMLElement>('[data-plan-card="'+id+'"]')?.scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+  function loadStaticTemplate() {
+    if(!staticTemplate)return;
+    setDraft(null);change(structuredClone(staticTemplate.project));setTemplate(staticTemplate.template);setPosition(staticTemplate.position);
   }
   function loadPreset(id:string,pos:string) {
     if(!id){setTemplate('');return;}
@@ -179,7 +200,7 @@ function App() {
       {result&&person&&<ProbePanel p={p} settings={probe} reading={probeReading} onChange={setProbe}/>}
       <div className="results">{!deployment.staticMode&&<><div className="row"><h3>{t("模拟状态")}<span className="status">{t(status)}</span></h3><small>{t("单任务 · 2 核限额")}</small></div><progress max={1} value={progress}/></>}{!!error&&<div className="error">{formatError(error,language)}</div>}
       {timing&&<p className="hint runtime">{progressText(timing,language)}</p>}{warning&&<div className="settlement-warning" role="alert">{t("未稳定 / not_settled：")}{translateWarning(warning,language)}</div>}
-      {!cfdResult&&<p className="prediction-status" data-inference-ms={prediction?.elapsed_ms.toFixed(3)}>{deployment.staticMode&&prediction&&!prediction.field?t("static.localRequired"):prediction?t("预估 · 置信度 {v0} · {v1} · {v2} ms",{v0:prediction.confidence,v1:prediction.reason,v2:prediction.elapsed_ms.toFixed(2)}):t(tableError)||t("载入预估表…")}{isPrediction&&t(deployment.staticMode?"static.validation":"。尚未完成数据集验证，不替代精算。")}</p>}
+      {!cfdResult&&<p className="prediction-status" data-inference-ms={prediction?.elapsed_ms.toFixed(3)}>{deployment.staticMode&&prediction&&!prediction.field?t("static.localRequired"):prediction?t("预估 · 置信度 {v0} · {v1} · {v2} ms",{v0:prediction.confidence,v1:prediction.reason,v2:prediction.elapsed_ms.toFixed(2)}):t(tableError)||t("载入预估表…")}{isPrediction&&t(deployment.staticMode?"static.validation":"。尚未完成数据集验证，不替代精算。")}{deployment.staticMode&&prediction&&!prediction.field&&staticTemplate&&<> <button onClick={loadStaticTemplate}>{t("static.loadTemplate")}</button></>}</p>}
       {result?<><div className="kpis"><div><span>{t("房间平均")}</span><strong>{result.kpi.room_average_c.toFixed(1)}<small> °C</small></strong></div><div><span>{t("最低 / 最高")}</span><strong>{result.T.min.toFixed(1)} / {result.T.max.toFixed(1)}<small> °C</small></strong></div><div><span>{isPrediction?t("热平衡"):t("热平衡误差")}</span><strong>{isPrediction?t("未精算"):`${(result.kpi.energy_balance_error*100).toFixed(1)} %`}</strong></div><div><span>{isPrediction?t("浏览器推断"):t("求解耗时 / 网格")}</span><strong>{isPrediction?`${prediction?.elapsed_ms.toFixed(2)} ms`:`${result.kpi.solve_wall_time_s.toFixed(0)} s / ${(result.kpi.cell_count/1000).toFixed(0)}k`}</strong></div></div><div className="slice-controls"><label>{t("切片高度")}{' '}{height.toFixed(2)} m <input type="range" min="0.05" max={p.room.height-.05} step="0.05" disabled={!layers.slice} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label><label><input type="checkbox" disabled={!layers.slice} checked={vertical} onChange={e=>setVertical(e.target.checked)}/>{t("竖直切片（房间中线）")}</label></div></>:deployment.showSolverEmptyState&&<p className="empty">{t("无可用预估，请精算。精算需数分钟；不会自动提交。")}</p>}
       {result&&<><div className="kpis"><div><span>{isPrediction?t("额定 / 预估所需功率"):t("额定 / CFD 恒温功率")}</span><strong>{result.kpi.rated_power_w.toFixed(0)} / {result.kpi.cfd_heater_power_w.toFixed(0)}<small> W</small></strong></div><div><span>{isPrediction?t("解析 UA 功率"):t("解析估计 / 调节次数")}</span><strong>{result.kpi.analytic_effective_power_w.toFixed(0)}<small> W{!isPrediction&&t(" / {v0} 次",{v0:result.kpi.thermostat_iterations})}</small></strong></div><div><span>{t("恒温占空比")}</span><strong>{(result.kpi.duty_cycle*100).toFixed(1)}<small> %</small></strong></div><div><span>{t("供暖能力")}</span><strong>{capacityText(result.kpi.insufficient_power,warning,language)}</strong></div></div><p className="hint">{isPrediction?t(deployment.staticMode?"static.physics":"S1 仅为无辐射对流模型预估。功率不足时显示的是目标温度场，不代表实际可达到温度；建议精算。"):t("M0 不含辐射；CFD 功率仅对应当前对流模型，解析估计用于 RC 初值。")}</p></>}
       {cfdResult?.kpi.heat_loss_groups_w&&<p className="hint">{t("散热分项：")}{Object.entries(cfdResult.kpi.heat_loss_groups_w).map(([group,w])=>t("{v0} {v1} W",{v0:t(({exterior_walls:'外墙',windows:'窗户',exterior_doors:'外门'} as Record<string,string>)[group]??group),v1:w.toFixed(1)})).join(' · ')}{t("（内门绝热）")}</p>}

@@ -1,4 +1,5 @@
 export const en = {
+  "static.loadTemplate": "Load template",
   "static.title": "Static demo · instant S1 only",
   "static.notice": "Static demo — instant S1 estimates only; run the Docker version locally for OpenFOAM.",
   "static.readme": "Local Docker guide (README)",
@@ -388,6 +389,7 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "static.loadTemplate": "载入模板",
   "static.title": "静态演示 · 仅 S1 即时预估",
   "static.notice": "静态演示 — 仅提供 S1 即时预估；如需 OpenFOAM 精算，请在本机运行 Docker 版本。",
   "static.readme": "本机 Docker 使用说明（README）",

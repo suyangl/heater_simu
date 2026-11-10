@@ -1,6 +1,10 @@
 import {describe,it,expect} from 'vitest';
 import {defaultLayers,speedLegendVisible} from './ResultLayers';
 describe('default layers',()=>{
+  it('shows the temperature field immediately in the static demo only',()=>{
+    expect(defaultLayers(true).slice).toBe(true);
+    expect(defaultLayers(false).slice).toBe(false);
+  });
   it('starts with the slice off while retaining the other layer defaults',()=>{
     expect(defaultLayers()).toEqual({walls:true,colors:true,streamlines:true,iso:true,slice:false});
   });
