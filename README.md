@@ -16,16 +16,18 @@
 ## Windows 10 启动
 
 1. 安装兼容当前 Windows 10 版本的 Docker Desktop，启用 BIOS 虚拟化、WSL2 与 Docker 的 Linux containers / WSL2 backend。先启动 Docker Desktop，等待引擎就绪。
-2. 8 GB 内存机器建议在 `%UserProfile%\.wslconfig` 写入：
+2. For Windows 10 with an i7 (4 physical cores / 8 logical processors) and 8 GB RAM, create or edit `%UserProfile%\.wslconfig`:
    ```ini
    [wsl2]
    memory=4GB
    processors=4
-   swap=4GB
+   swap=2GB
    ```
-   保存后在 PowerShell 运行 `wsl --shutdown`，再重启 Docker Desktop。
+   After saving, run `wsl --shutdown` in PowerShell, then restart Docker Desktop to apply the limits.
 3. 下载或 clone 仓库。在仓库根目录 PowerShell 运行 `powershell -ExecutionPolicy Bypass -File .\start.ps1`；也可手动运行 `docker compose up -d --build`。
 4. 打开 **http://localhost:8080**。首次构建需要网络下载镜像与依赖，之后仿真本地运行。等待 API 和 worker 就绪后点击「开始模拟」。
+
+The default interactive profile runs **one case at a time**, using **2 MPI ranks** and approximately **600 MB peak solver memory per case**. Allow **~40–50 minutes** for a detailed OpenFOAM simulation on this hardware; geometry and other system load affect runtime. The 4 GB WSL2 memory cap leaves RAM available for Windows and the browser.
 
 仅发布 localhost:8080；API 不直接暴露。数据保存在 Docker 命名卷 `heater_data`，不通过 Windows 文件系统挂载，以避免大量 OpenFOAM 小文件 IO 变慢。`docker compose down` 保留数据；`docker compose down -v` **永久删除所有任务**。
 

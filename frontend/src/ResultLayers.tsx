@@ -67,7 +67,7 @@ export function RoomOutline({size}:{size:number[]}) {
     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));return g;
   },[size[0],size[1],size[2]]);
   useEffect(()=>()=>geometry.dispose(),[geometry]);
-  return <lineSegments geometry={geometry} ref={line=>line?.computeLineDistances()} renderOrder={4}><lineDashedMaterial color="white" dashSize={.09} gapSize={.06} transparent opacity={.9} toneMapped={false}/></lineSegments>;
+  return <lineSegments geometry={geometry} ref={line=>line?.computeLineDistances()} renderOrder={4}><lineDashedMaterial color="#4b606a" dashSize={.09} gapSize={.06} transparent opacity={.9} toneMapped={false}/></lineSegments>;
 }
 
 export function Colorbar({title,range}:{title:string;range:number[]}) {

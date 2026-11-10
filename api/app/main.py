@@ -2,12 +2,15 @@ import json
 import shutil
 import time
 import uuid
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BeforeValidator
 
 from .case import generate
 from .models import Project
+from .project_labels import solver_project, user_project
 from .queue import DATA, connect
 
 app = FastAPI(title='HeatSimu M0')
@@ -55,7 +58,7 @@ def surrogate_file():
 
 
 @app.post('/api/simulate', status_code=202)
-def simulate(project: Project):
+def simulate(project: Annotated[Project, BeforeValidator(solver_project)]):
     job_id = str(uuid.uuid4())
     path = DATA/job_id
     try:
@@ -65,6 +68,7 @@ def simulate(project: Project):
             shutil.rmtree(path)
         raise HTTPException(422, str(exc)) from exc
     (path/'mesh.json').write_text(json.dumps(meta))
+    (path/'user_project.json').write_text(json.dumps(user_project(project.model_dump())))
     with connect() as db:
         db.execute('INSERT INTO jobs VALUES (?, ?, ?, ?, ?)', (job_id, 'queued', 0, None, time.time()))
     return {'job_id': job_id}
@@ -81,7 +85,9 @@ def find(job_id):
 @app.get('/api/jobs/{job_id}')
 def job(job_id: str):
     row = find(job_id)
-    row['project'] = json.loads((DATA/row['id']/'project.json').read_text())
+    path = DATA/row['id']
+    project_file = path/'user_project.json'
+    row['project'] = user_project(json.loads((project_file if project_file.exists() else path/'project.json').read_text()))
     progress = DATA/row['id']/'progress.json'
     if progress.exists():
         runtime = json.loads(progress.read_text())
