@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {newProfile,restoreSettings,evaluateTariff} from './billing';
+import {defaultSchedule,newProfile,restoreSettings,evaluateTariff} from './billing';
 import {analyticBreakdown,analyticUA,UNMODIFIED} from './envelope';
 import {Project,Table} from './s1';
 import {applyMeasures,buildPlanner,combinedPlan,measuresFor,restorePlanner,simulateApplied} from './planner';
@@ -103,5 +103,21 @@ describe('saving planner scenarios',()=>{
     const restored=restoreSettings(JSON.stringify(state.settings),20);
     expect(restored.envelope).toEqual({windowFactor:.85,achFactor:.8});
     expect(measuresFor({...input,settings:restored}).some(m=>['curtains','film','draught'].includes(m.kind))).toBe(false);
+  });
+  it('compares schedules consistently after applying −1°C with followProject enabled',()=>{
+    const input=fixture(),prefs=restorePlanner(null);
+    input.project.room={length:3.5,width:3,height:2.5};input.project.heater.setpoint_c=19;
+    input.project.heater.power_w=1500;input.calibratedUA=5.916297293170128;
+    input.settings.schedule=defaultSchedule(19);input.settings.climate=restoreSettings(null,19).climate;
+    const current={...input,table:null,analytic:analyticBreakdown(input.project,null)};
+    const state=applyMeasures(current,measuresFor(current).filter(m=>m.id==='setpoint-1'),prefs.assumptions);
+    const plan=buildPlanner({...current,project:state.project,settings:state.settings},prefs);
+    expect(state.project.heater.setpoint_c).toBe(18);
+    expect(state.settings.followProject).toBe(true);expect(state.settings.schedule.eco).toBe(16);
+    for(const id of ['eco-15','shorten']){
+      const c=plan.candidates.find(c=>c.measure.id===id)!;
+      expect(c.kwh).toBeGreaterThanOrEqual(-1e-8);expect(c.euros!).toBeGreaterThanOrEqual(-1e-8);
+      expect(c.scenario.settings.schedule.comfort).toBe(18);
+    }
   });
 });

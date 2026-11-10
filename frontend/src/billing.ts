@@ -59,7 +59,8 @@ export function simulateSeason(input:{ua:number;area:number;ratedPower:number;in
     }
   }
   const capacity=(input.capacityPerArea??CAPACITY[inertia])*area,lossFraction=-Math.expm1(-ua*3600/capacity);
-  let indoor=(days[0].weekday>=5?schedule.weekends:schedule.weekdays)[0]?schedule.comfort:schedule.eco;
+  // Common warm start for eco/pattern comparisons; no scenario-specific stored heat.
+  let indoor=schedule.comfort;
   let total=0,comfortHours=0,comfortable=0;
   for(let day=0;day<days.length;day++)for(let hour=0;hour<24;hour++){
     const comfort=(days[day].weekday>=5?schedule.weekends:schedule.weekdays)[hour];

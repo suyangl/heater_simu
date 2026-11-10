@@ -51,6 +51,7 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
   return <><section className="billing" aria-label={t('billing.title')} data-rc-ms={simulated.elapsed.toFixed(3)}>
     <div className="row"><h2>{t('billing.title')}</h2><span className="billing-badge">{t('billing.local')}</span></div>
     <p>{t('billing.model',{ua:fmt(effective,2),source:t('billing.source.'+(calibrated?source:'analytic')),capacity:fmt((settings.capacityPerArea??CAPACITY[settings.inertia])/1000,0)})}</p>
+    <p className="hint">{t('billing.designClimateNote')}</p>
     <p className="hint">{t('billing.assumptions')}</p>
     {settings.envelope&&<p className="billing-warning">{t('planner.appliedModifiers',{window:fmt(settings.envelope.windowFactor,3),ach:fmt(settings.envelope.achFactor,3)})}{' '}
       <button onClick={()=>setSettings(s=>({...s,envelope:undefined}))}>{t('planner.resetModifiers')}</button></p>}
