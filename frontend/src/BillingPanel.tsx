@@ -3,6 +3,7 @@ import {BILLING_STORAGE,CAPACITY,Colour,Inertia,Price,Profile,TariffKind,TariffP
 import {Project,Table} from './s1';
 import {analyticBreakdown,analyticUA} from './envelope';
 import {PlannerPanel} from './PlannerPanel';
+import {removeRetrofit} from './PlannerConfirmation';
 import {useLanguage} from './Language';
 import './billing.css';
 
@@ -139,7 +140,7 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
         {settings.schedule[pattern].map((checked,h)=><label key={h} className={checked?'is-comfort':''}><span>{h}:00</span><input type="checkbox" checked={checked} aria-label={t('billing.scheduleHour',{day:t('billing.'+pattern),hour:h})} onChange={e=>setSettings(s=>({...s,schedule:{...s.schedule,[pattern]:s.schedule[pattern].map((v,j)=>j===h?e.target.checked:v)}}))}/></label>)}
       </fieldset>)}
     </details>
-  </section><PlannerPanel input={plannerInput} onApply={state=>{
+  </section><PlannerPanel input={plannerInput} onRemoveRetrofit={key=>setSettings(s=>({...s,envelope:removeRetrofit(s.envelope,key)}))} onApply={state=>{
     setSettings(state.settings);
     if(JSON.stringify(state.project)!==JSON.stringify(project))onProjectChange(state.project);
   }}/></>;

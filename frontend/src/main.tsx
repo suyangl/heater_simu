@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Canvas } from '@react-three/fiber';
 import { Edges, GizmoHelper, GizmoViewport, Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { Colorbar, FieldSurface, FlowLines, Layers, defaultLayers, RoomOutline, speedLegendVisible, turbo, VisualFields } from './ResultLayers';
-import { predict, prepare, Table, Box, Project, Wall, Opening, openingsOf, exteriorOf } from './s1';
+import { predict, prepare, Table, Box, Project, Wall, Opening, openingsOf, exteriorOf, matchPreset } from './s1';
 import { capacityText, progressText, Runtime, settlementWarning } from './runStatus';
 import {LanguageProvider,useLanguage} from './Language';
 import {formatError,translateWarning} from './i18n';
@@ -15,11 +15,15 @@ import {Selection,commit,historyOf,undo,redo} from './plan';
 import {clampPosition,makeSampler,readProbe,restoreProbe,ProbeReading,ProbeSettings} from './probe';
 import {ProbeFigure,ProbePanel} from './ProbeFigure';
 import {deployment} from './deployment';
+import {chooseStaticTemplate,restoreStaticProject,staticProjectTemplate,STATIC_PROJECT_STORAGE} from './staticProject';
+import {deriveS1Surfaces} from './s1Surfaces';
+import {CFDIndex,ExampleResult,chooseCFDExample,combineExample,createExampleLoader} from './cfdExamples';
 import './style.css';
 import './runStatus.css';
 
 type Result = VisualFields & {grid:{nx:number;ny:number;nz:number;origin:number[];spacing:number[]};T:{data:string;min:number;max:number;mean:number};kpi:{room_average_c:number;heat_loss_w:number;heat_loss_groups_w?:Record<string,number>;energy_balance_error:number;solve_wall_time_s:number;cell_count:number;rated_power_w:number;cfd_heater_power_w:number;analytic_effective_power_w:number;thermostat_iterations:number;duty_cycle:number;insufficient_power:boolean;not_settled?:boolean}};
 const initial:Project = {room:{length:4,width:3.5,height:2.5},exterior_wall:'N',window:{offset:1.2,width:1.2,height:1.35,sill:.9},dpe:'F',outdoor_temp:5,heater:{power_w:1500,setpoint_c:19,wall:'N',offset:1.3,z:.15,length:.8,depth:.1,height:.5},furniture:[{x:.2,y:.3,z:0,l:1.9,w:1.4,h:.55},{x:2.7,y:.3,z:0,l:1,w:.6,h:.75}]};
+const exampleLoader=createExampleLoader();
 
 
 
@@ -87,7 +91,7 @@ function Scene({p,result,height,vertical,layers,probe,probeReading,person,onProb
       {hasSurfaces&&p.furniture.filter(b=>b.name||b.kind).map((b,i)=><Solid key={`label-${i}`} b={b} color="white" opacity={0}/>)}
       {hasSurfaces&&result!.surfaces!.map(surface=>{
         if(surface.name?.startsWith('window')||surface.name?.startsWith('door'))return null;
-        const solid=['furniture','heater'].includes(surface.name??'');
+        const solid=surface.name?.startsWith('furniture')||surface.name==='heater';
         if(!solid&&!layers.walls)return null;
         const opacity=solid?1:surface.name==='floor'?.3:surface.name==='window'?.3:surface.name==='ceiling'?.06:.16;
         return <FieldSurface key={surface.name} surface={surface} range={temperature} colored={layers.colors} opacity={opacity}/>;
@@ -102,8 +106,8 @@ function Scene({p,result,height,vertical,layers,probe,probeReading,person,onProb
     <GizmoHelper alignment="bottom-left" margin={[65,65]}><GizmoViewport axisColors={['#c94d4d','#225ea8','#19835b']} labels={['X','Z','Y']} labelColor="white"/></GizmoHelper>
   </Canvas>;
 }
-function NumberInput({label,value,onChange,step=.1}:{label:string;value:number;onChange:(v:number)=>void;step?:number}) {
-  return <label>{label}<input type="number" value={value} step={step} onChange={e=>onChange(Number(e.target.value))}/></label>;
+function NumberInput({label,value,onChange,step=.1,highlight=false}:{label:string;value:number;onChange:(v:number)=>void;step?:number;highlight?:boolean}) {
+  return <label className={highlight?'planner-setpoint-updated':undefined}>{label}<input type="number" value={value} step={step} onChange={e=>onChange(Number(e.target.value))}/></label>;
 }
 const {request}=deployment;
 function App() {
@@ -111,31 +115,74 @@ function App() {
   const wallNames:Record<Wall,string> = {N:t("北墙 N"),S:t("南墙 S"),E:t("东墙 E"),W:t("西墙 W")};
   const templateNames:Record<string,string> = {bedroom_small:t("小卧室 · 3.5 × 3"),bedroom:t("卧室 · 4 × 3.5"),living:t("客厅 · 5 × 4"),study:t("书房 · 3 × 2.5")};
   const positionNames:Record<string,string> = {under_window:t("窗下"),beside_window:t("外墙窗旁"),opposite_wall:t("对面内墙"),interior_corner:t("内墙角落")};
-  const [history,setHistory]=useState(()=>historyOf(initial)),[draft,setDraft]=useState<Project|null>(null),[selection,setSelection]=useState<Selection|null>(null);
+  const [restoredProject]=useState(()=>{try{return deployment.staticMode?restoreStaticProject(localStorage.getItem(STATIC_PROJECT_STORAGE)):null;}catch{return null;}});
+  const [staticReady,setStaticReady]=useState(!deployment.staticMode||!!restoredProject),startupEdited=useRef(false);
+  const [history,setHistory]=useState(()=>historyOf(restoredProject??initial)),[draft,setDraft]=useState<Project|null>(null),[selection,setSelection]=useState<Selection|null>(null);
   const p=draft??history.present;
+  const [setpointPulse,setSetpointPulse]=useState(0);
+  useEffect(()=>{if(setpointPulse){const timer=window.setTimeout(()=>setSetpointPulse(0),4000);return ()=>window.clearTimeout(timer);}},[setpointPulse]);
   const [cfdResult,setResult]=useState<Result|null>(null),[jobId,setJobId]=useState<string|null>(null);
   const [table,setTable]=useState<Table|null>(null),[tableError,setTableError]=useState(''),[template,setTemplate]=useState(''),[position,setPosition]=useState('under_window');
   const [status,setStatus]=useState(t("就绪")),[progress,setProgress]=useState(0),[error,setError]=useState<unknown>(null),[log,setLog]=useState('');
   const [timing,setTiming]=useState<Runtime|null>(null),[warning,setWarning]=useState('');
   const [height,setHeight]=useState(1.1),[vertical,setVertical]=useState(false),[busy,setBusy]=useState(false);
-  const [layers,setLayers]=useState<Layers>(defaultLayers);
+  const [layers,setLayers]=useState<Layers>(()=>defaultLayers(deployment.staticMode));
   const [speedLegend,setSpeedLegend]=useState(true),[person,setPerson]=useState(true);
   const [probe,setProbe]=useState(()=>{try{return restoreProbe(localStorage.getItem('heatsimu.probe.v1'),initial.room);}catch{return restoreProbe(null,initial.room);}});
   useEffect(()=>{try{localStorage.setItem('heatsimu.probe.v1',JSON.stringify(probe));}catch{}},[probe]);
   useEffect(()=>{setProbe(s=>({...s,...clampPosition(s,p.room)}));},[p.room.length,p.room.width]);
+  const staticTemplate=useMemo(()=>deployment.staticMode&&table?chooseStaticTemplate(table):null,[table]);
+  useEffect(()=>{if(deployment.staticMode&&staticReady){try{localStorage.setItem(STATIC_PROJECT_STORAGE,JSON.stringify({version:1,project:history.present}));}catch{}}},[history.present,staticReady]);
   const prediction=useMemo(()=>table?predict(history.present,table,language):null,[history.present,table,language]);
-  const committedResult:Result|null=cfdResult??prediction?.field??null;
+  const s1Result=useMemo(()=>prediction?.field?{...prediction.field,surfaces:deriveS1Surfaces(history.present,prediction.field)}:null,[prediction,history.present]);
+  const [examples,setExamples]=useState<CFDIndex|null>(null),[exampleError,setExampleError]=useState(false);
+  const [loadedExample,setLoadedExample]=useState<{id:string;result:ExampleResult}|null>(null);
+  useEffect(()=>{void exampleLoader.loadIndex().then(setExamples).catch(()=>setExampleError(true));},[]);
+  const exampleChoice=useMemo(()=>table&&examples&&!cfdResult?chooseCFDExample(history.present,table,examples):null,[table,examples,history.present,cfdResult]);
+  useEffect(()=>{
+    if(!exampleChoice)return;
+    let active=true;setExampleError(false);
+    void exampleLoader.loadCase(exampleChoice.entry).then(result=>{if(active)setLoadedExample({id:exampleChoice.entry.id,result});})
+      .catch(()=>{if(active)setExampleError(true);});
+    return ()=>{active=false;};
+  },[exampleChoice?.entry.id]);
+  const exampleData=loadedExample?.id===exampleChoice?.entry.id?loadedExample?.result??null:null;
+  const exactExample=!!exampleData&&!!exampleChoice?.exact&&!cfdResult;
+  const committedResult:Result|null=cfdResult??combineExample(s1Result,exampleChoice,exampleData);
   const result:Result|null=draft?null:committedResult;
-  const isPrediction=!draft&&!cfdResult&&!!prediction?.field;
+  const isPrediction=!draft&&!cfdResult&&!exactExample&&!!prediction?.field;
+  const exampleSummary=exampleChoice?t('examples.summary',{template:templateNames[exampleChoice.entry.template]??exampleChoice.entry.template,
+    position:positionNames[exampleChoice.entry.position]??exampleChoice.entry.position,dpe:exampleChoice.entry.dpe,
+    setpoint:exampleChoice.entry.setpoint_c,outdoor:exampleChoice.entry.outdoor_temp,power:exampleChoice.entry.project.heater.power_w}):'';
   const sample=useMemo(()=>makeSampler(result,p.furniture),[result,p.furniture]);
   const probeReading=useMemo(()=>readProbe(sample,p,probe),[sample,p,probe]);
-  useEffect(()=>{void deployment.loadArtifact().then(data=>setTable(prepare(data))).catch(()=>setTableError(t(deployment.staticMode?"static.tableUnavailable":"预估表尚不可用，请精算")));},[]);
+  useEffect(()=>{void deployment.loadArtifact().then(data=>{
+    const prepared=prepare(data);setTable(prepared);
+    if(deployment.staticMode){
+      if(!startupEdited.current){
+        const selected=restoredProject?null:chooseStaticTemplate(prepared),project=restoredProject??selected?.project;
+        if(project){
+          if(!restoredProject)setHistory(historyOf(project));
+          const match=staticProjectTemplate(project,prepared);setTemplate(match.template);setPosition(match.position);
+        }
+      }
+      setStaticReady(true);
+    }
+  }).catch(()=>setTableError(t(deployment.staticMode?"static.tableUnavailable":"预估表尚不可用，请精算")));},[]);
   function invalidate() {setResult(null);setJobId(null);setProgress(0);setLog('');setStatus(t("输入已更新"));setError('');setTiming(null);setWarning('');window.history.replaceState(null,'',window.location.pathname);}
-  function change(next:Project) {if(JSON.stringify(next)===JSON.stringify(history.present))return;setHistory(h=>commit(h,next));invalidate();}
+  function change(next:Project) {if(JSON.stringify(next)===JSON.stringify(history.present))return;startupEdited.current=true;setHistory(h=>commit(h,next));invalidate();}
+  function applyFromBilling(next:Project) {
+    if(next.heater.setpoint_c!==history.present.heater.setpoint_c)setSetpointPulse(n=>n+1);
+    change(next);
+  }
   function travel(direction:'undo'|'redo') {if(direction==='undo'?!history.past.length:!history.future.length)return;setDraft(null);setHistory(h=>direction==='undo'?undo(h):redo(h));invalidate();}
   function selectPlan(id:Selection|null) {
     setSelection(id);
     if(id)document.querySelector<HTMLElement>('[data-plan-card="'+id+'"]')?.scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+  function loadStaticTemplate() {
+    if(!staticTemplate)return;
+    setDraft(null);change(structuredClone(staticTemplate.project));setTemplate(staticTemplate.template);setPosition(staticTemplate.position);
   }
   function loadPreset(id:string,pos:string) {
     if(!id){setTemplate('');return;}
@@ -170,20 +217,21 @@ function App() {
       <section data-plan-card="room" className={selection==='room'?'plan-linked':''} onPointerDown={()=>setSelection('room')}><h3>{t("房间")}<small>m</small></h3><div className="fields">{(['length','width','height'] as const).map((k,i)=><NumberInput key={k} label={[t("长"),t("宽"),t("高")][i]} value={p.room[k]} onChange={v=>change({...p,room:{...p.room,[k]:v}})}/>)}</div></section>
       <section><h3>{t("围护与气候")}</h3><div className="fields">{(Object.keys(wallNames) as Wall[]).map(w=><label key={w}><input type="checkbox" checked={exteriorOf(p).includes(w)} onChange={e=>change({...p,exterior_walls:e.target.checked?[...exteriorOf(p),w]:exteriorOf(p).filter(v=>v!==w)})}/>{wallNames[w]}{' '}{t("外墙")}</label>)}<label>{t("DPE 等级")}<select value={p.dpe} onChange={e=>change({...p,dpe:e.target.value})}>{'ABCDEFG'.split('').map(v=><option key={v}>{v}</option>)}</select></label><NumberInput label={t("室外 °C")} value={p.outdoor_temp} onChange={v=>change({...p,outdoor_temp:v})}/></div><p className="hint">{t("未选墙面为已供暖邻室，绝热；换气损失按外墙不透明总面积分摊。")}</p></section>
       <section><h3>{t("门窗")}<small>{openingsOf(p).length} / 24 · m</small></h3>{openingsOf(p).map((o,i)=><div data-plan-card={`opening-${i}`} onPointerDown={()=>setSelection(`opening-${i}`)} className={`furniture ${selection===`opening-${i}`?'plan-linked':''}`} key={i}><div className="row"><b>{o.type==='window'?t("窗户"):t("门")} {i+1}</b><button className="remove" onClick={()=>change({...p,openings:openingsOf(p).filter((_,j)=>j!==i)})}>{t("移除")}</button></div><div className="fields"><label>{t("类型")}<select value={o.type} onChange={e=>change({...p,openings:openingsOf(p).map((a,j)=>j===i?{...a,type:e.target.value as Opening['type'],sill:e.target.value==='door'?0:.9}:a)})}><option value="window">{t("窗户")}</option><option value="door">{t("门")}</option></select></label><label>{t("所在墙")}{wallSelect(o.wall,v=>change({...p,openings:openingsOf(p).map((a,j)=>j===i?{...a,wall:v}:a)}))}</label>{(['offset','width','height','sill'] as const).map((k,j)=><NumberInput key={k} label={[t("沿墙偏移"),t("宽度"),t("高度"),t("窗台高度")][j]} value={o[k]} onChange={v=>change({...p,openings:openingsOf(p).map((a,n)=>n===i?{...a,[k]:o.type==='door'&&k==='sill'?0:v}:a)})}/>)}{o.type==='door'&&exteriorOf(p).includes(o.wall)&&<NumberInput label={t("外门 U W/(m²·K)")} value={o.u_value??1.8} onChange={v=>change({...p,openings:openingsOf(p).map((a,j)=>j===i?{...a,u_value:v}:a)})}/>}</div><p className="hint">{o.type==='window'?t("仅限外墙；青色"):exteriorOf(p).includes(o.wall)?t("外门：金色，默认 U=1.8，可编辑"):t("内门：紫色，已供暖邻室，绝热")}</p></div>)}<div className="presets">{(['window','door'] as const).map(type=><button key={type} disabled={openingsOf(p).length>=24} onClick={()=>change({...p,openings:[...openingsOf(p),{type,wall:exteriorOf(p)[0]??'N',offset:0,width:type==='door'?.8:1,height:type==='door'?2:1,sill:type==='door'?0:1,u_value:1.8}]})}>+ {type==='window'?t("窗户"):t("门")}</button>)}</div></section>
-      <section data-plan-card="heater" className={selection==='heater'?'plan-linked':''} onPointerDown={()=>setSelection('heater')}><h3>{t("对流式暖器")}</h3><div className="fields"><NumberInput label={t("额定功率 W")} value={p.heater.power_w} step={50} onChange={v=>change({...p,heater:{...p.heater,power_w:v}})}/><NumberInput label={t("恒温设定 °C")} value={p.heater.setpoint_c} onChange={v=>change({...p,heater:{...p.heater,setpoint_c:v}})}/><label>{t("所在墙")}{wallSelect(p.heater.wall,v=>change({...p,heater:{...p.heater,wall:v}}))}</label><NumberInput label={t("沿墙偏移 m")} value={p.heater.offset} onChange={v=>change({...p,heater:{...p.heater,offset:v}})}/><NumberInput label={t("离地高度 m")} value={p.heater.z} onChange={v=>change({...p,heater:{...p.heater,z:v}})}/></div><p className="hint">{t(deployment.staticMode?"static.physics":"CFD 恒温器调节平均功率；解析 UA 仅作初值。M0 不含辐射。")}</p></section>
+      <section data-plan-card="heater" className={selection==='heater'?'plan-linked':''} onPointerDown={()=>setSelection('heater')}><h3>{t("对流式暖器")}</h3><div className="fields"><NumberInput label={t("额定功率 W")} value={p.heater.power_w} step={50} onChange={v=>change({...p,heater:{...p.heater,power_w:v}})}/><NumberInput highlight={setpointPulse>0} label={t("恒温设定 °C")} value={p.heater.setpoint_c} onChange={v=>change({...p,heater:{...p.heater,setpoint_c:v}})}/><label>{t("所在墙")}{wallSelect(p.heater.wall,v=>change({...p,heater:{...p.heater,wall:v}}))}</label><NumberInput label={t("沿墙偏移 m")} value={p.heater.offset} onChange={v=>change({...p,heater:{...p.heater,offset:v}})}/><NumberInput label={t("离地高度 m")} value={p.heater.z} onChange={v=>change({...p,heater:{...p.heater,z:v}})}/></div><p className="hint">{t(deployment.staticMode?"static.physics":"CFD 恒温器调节平均功率；解析 UA 仅作初值。M0 不含辐射。")}</p></section>
       <section><h3>{t("家具")}<small>{p.furniture.length} / 15 · m</small></h3>{p.furniture.map((box,i)=><div data-plan-card={`furniture-${i}`} onPointerDown={()=>setSelection(`furniture-${i}`)} className={`furniture ${selection===`furniture-${i}`?'plan-linked':''}`} key={i}><div className="row"><b>{box.name||(box.kind&&t(kindLabel[migrateKind(box.kind)]))||t("方块 {v0}",{v0:i+1})}</b><button className="remove" onClick={()=>change({...p,furniture:p.furniture.filter((_,j)=>j!==i)})}>{t("移除")}</button></div><label>{t("名称")}<input type="text" value={box.name??''} maxLength={60} onChange={e=>change({...p,furniture:p.furniture.map((b,n)=>n===i?{...b,name:e.target.value}:b)})}/></label><label>{t("类型")}<select value={migrateKind(box.kind)} onChange={e=>{const kind=e.target.value,[l,w,h]=furnitureDefaults[kind];change({...p,furniture:p.furniture.map((b,n)=>n===i?{...b,kind,l,w,h}:b)});}}>{Object.keys(furnitureDefaults).map(k=><option key={k} value={k}>{t(kindLabel[k])}</option>)}</select></label><div className="fields">{(['x','y','z','l','w','h'] as const).map((k,j)=><NumberInput key={k} label={['X','Y','Z',t("长"),t("宽"),t("高")][j]} value={box[k]} onChange={v=>change({...p,furniture:p.furniture.map((b,n)=>n===i?{...b,[k]:v}:b)})}/>)}</div></div>)}<div className="presets">{Object.entries(furnitureDefaults).map(([kind,[l,w,h]])=><button key={kind} disabled={p.furniture.length>=15} onClick={()=>change({...p,furniture:[...p.furniture,{kind,name:'',x:.2,y:1.9,z:0,l,w,h}]})}>+ {t(kindLabel[kind])}</button>)}</div></section>
       </fieldset>{!deployment.staticMode&&<><button className="run" disabled={busy} onClick={()=>void simulate()}>{busy?t("OpenFOAM 精算中…"):t("▶ OpenFOAM 精算")}</button><p className="hint">{t("精算通常需 10+ 分钟；不会自动提交。低置信度或功率不足时建议精算。")}</p></>}</aside>
-      <article>{deployment.staticMode&&<div className="static-notice" role="note">{t("static.notice")} <a href="https://github.com/suyangl/heater_simu#readme" target="_blank" rel="noopener noreferrer">{t("static.readme")}</a></div>}<PlanEditor project={p} selected={selection} disabled={busy} canUndo={!!history.past.length} canRedo={!!history.future.length} onSelect={selectPlan} onPreview={setDraft} onCommit={next=>{setDraft(null);change(next);}} onUndo={()=>travel('undo')} onRedo={()=>travel('redo')}/><div className={result&&person?'view probe-view':'view'}><Scene p={p} result={result} height={height} vertical={vertical} layers={layers} probe={probe} probeReading={probeReading} person={person} onProbeChange={setProbe}/><div className="view-title"><span className="eyebrow">{t("02 / 三维热环境")}</span><h2>{result?t("平均温度与自然对流"):t("房间实时预览")}</h2><p>{t("拖动旋转 · 滚轮缩放 · 坐标：X 长 / Y 宽 / Z 高")}</p></div><div className="view-badge"><i/>{cfdResult?(cfdResult.kpi.not_settled?t("OpenFOAM · 未稳定"):t("OpenFOAM 精算")):isPrediction?t("预估 · 置信度 {v0}",{v0:prediction?.confidence}):t(deployment.staticMode?"static.localRequired":"无可用预估，请精算")}</div>
-      <div className="layer-controls">{([['walls',t("墙面"),true],['colors',t("表面着色"),!!result?.surfaces?.length],['streamlines',t("流线"),!!result?.streamlines?.line_count],['iso',t("等温面"),!!result?.isosurface],['slice',t("温度切片"),!!result]] as const).filter(([key])=>deployment.showLayer(key)).map(([key,label,available])=><label key={key}><input type="checkbox" checked={layers[key]} disabled={!available} onChange={e=>setLayers({...layers,[key]:e.target.checked})}/>{label}</label>)}{deployment.showLayer("speedLegend")&&<label><input type="checkbox" checked={speedLegend} disabled={!result?.U} onChange={e=>setSpeedLegend(e.target.checked)}/>{t('风速色标')}</label>}<label><input type="checkbox" checked={person} disabled={!result} onChange={e=>setPerson(e.target.checked)}/>{t("probe.person")}</label>{result?.isosurface&&<small>{result.isosurface.level_c?.toFixed(1)}{t("°C 等温面 · 按风速着色")}</small>}</div>
+      <article>{deployment.staticMode&&<div className="static-notice" role="note">{t("static.notice")} <a href="https://github.com/suyangl/heater_simu#readme" target="_blank" rel="noopener noreferrer">{t("static.readme")}</a></div>}<PlanEditor project={p} selected={selection} disabled={busy} canUndo={!!history.past.length} canRedo={!!history.future.length} onSelect={selectPlan} onPreview={setDraft} onCommit={next=>{setDraft(null);change(next);}} onUndo={()=>travel('undo')} onRedo={()=>travel('redo')}/><div className={result&&person?'view probe-view':'view'}><Scene p={p} result={result} height={height} vertical={vertical} layers={layers} probe={probe} probeReading={probeReading} person={person} onProbeChange={setProbe}/><div className="view-title"><span className="eyebrow">{t("02 / 三维热环境")}</span><h2>{result?t("平均温度与自然对流"):t("房间实时预览")}</h2><p>{t("拖动旋转 · 滚轮缩放 · 坐标：X 长 / Y 宽 / Z 高")}</p></div><div className="view-badge"><i/>{cfdResult?(cfdResult.kpi.not_settled?t("OpenFOAM · 未稳定"):t("OpenFOAM 精算")):exactExample?t("examples.exact"):isPrediction?t("预估 · 置信度 {v0}",{v0:prediction?.confidence}):t(deployment.staticMode?"static.localRequired":"无可用预估，请精算")}</div>
+      <div className="layer-controls">{([['walls',t("墙面"),true],['colors',t(isPrediction?"s1.approxSurfaces":"表面着色"),!!result?.surfaces?.length],['streamlines',t("流线"),!!result?.streamlines?.line_count],['iso',t("等温面"),!!result?.isosurface],['slice',t("温度切片"),!!result]] as const).filter(([key])=>deployment.showLayer(key,!!exampleData&&!!result)).map(([key,label,available])=><label key={key}><input type="checkbox" checked={layers[key]} disabled={!available} onChange={e=>setLayers({...layers,[key]:e.target.checked})}/>{label}</label>)}{deployment.showLayer("speedLegend",!!exampleData&&!!result)&&<label><input type="checkbox" checked={speedLegend} disabled={!result?.U} onChange={e=>setSpeedLegend(e.target.checked)}/>{t('风速色标')}</label>}<label><input type="checkbox" checked={person} disabled={!result} onChange={e=>setPerson(e.target.checked)}/>{t("probe.person")}</label>{result?.isosurface&&<small>{result.isosurface.level_c?.toFixed(1)}{t("°C 等温面 · 按风速着色")}</small>}</div>
       {result&&<div className="colorbars"><Colorbar title={t("温度 °C")} range={result.temperature_range??[result.T.min,result.T.max]}/>{result.U&&speedLegendVisible(speedLegend,layers)&&<Colorbar title={t("风速 m/s")} range={[0,result.U.max]}/>}</div>}</div>
       {result&&person&&<ProbePanel p={p} settings={probe} reading={probeReading} onChange={setProbe}/>}
       <div className="results">{!deployment.staticMode&&<><div className="row"><h3>{t("模拟状态")}<span className="status">{t(status)}</span></h3><small>{t("单任务 · 2 核限额")}</small></div><progress max={1} value={progress}/></>}{!!error&&<div className="error">{formatError(error,language)}</div>}
       {timing&&<p className="hint runtime">{progressText(timing,language)}</p>}{warning&&<div className="settlement-warning" role="alert">{t("未稳定 / not_settled：")}{translateWarning(warning,language)}</div>}
-      {!cfdResult&&<p className="prediction-status" data-inference-ms={prediction?.elapsed_ms.toFixed(3)}>{deployment.staticMode&&prediction&&!prediction.field?t("static.localRequired"):prediction?t("预估 · 置信度 {v0} · {v1} · {v2} ms",{v0:prediction.confidence,v1:prediction.reason,v2:prediction.elapsed_ms.toFixed(2)}):t(tableError)||t("载入预估表…")}{isPrediction&&t(deployment.staticMode?"static.validation":"。尚未完成数据集验证，不替代精算。")}</p>}
+      {!cfdResult&&<p className="prediction-status" data-inference-ms={prediction?.elapsed_ms.toFixed(3)}>{exactExample?t("examples.exact"):deployment.staticMode&&prediction&&!prediction.field?t("static.localRequired"):prediction?t("预估 · 置信度 {v0} · {v1} · {v2} ms",{v0:prediction.confidence,v1:prediction.reason,v2:prediction.elapsed_ms.toFixed(2)}):t(tableError)||t("载入预估表…")}{isPrediction&&<>{t(deployment.staticMode?"static.validation":"。尚未完成数据集验证，不替代精算。")}{t("s1.surfaceCaveat")}</>}{deployment.staticMode&&prediction&&!committedResult&&staticTemplate&&<> <button onClick={loadStaticTemplate}>{t("static.loadTemplate")}</button></>}</p>}
+      {!cfdResult&&table&&matchPreset(history.present,table)&&!exactExample&&<p className="example-status" role="note">{exampleError?t("examples.failed"):examples&&!exampleChoice?t("examples.none"):exampleData?t(s1Result?"examples.overlay":"examples.noS1",{summary:exampleSummary}):exampleChoice?t("examples.loading"):''}</p>}
       {result?<><div className="kpis"><div><span>{t("房间平均")}</span><strong>{result.kpi.room_average_c.toFixed(1)}<small> °C</small></strong></div><div><span>{t("最低 / 最高")}</span><strong>{result.T.min.toFixed(1)} / {result.T.max.toFixed(1)}<small> °C</small></strong></div><div><span>{isPrediction?t("热平衡"):t("热平衡误差")}</span><strong>{isPrediction?t("未精算"):`${(result.kpi.energy_balance_error*100).toFixed(1)} %`}</strong></div><div><span>{isPrediction?t("浏览器推断"):t("求解耗时 / 网格")}</span><strong>{isPrediction?`${prediction?.elapsed_ms.toFixed(2)} ms`:`${result.kpi.solve_wall_time_s.toFixed(0)} s / ${(result.kpi.cell_count/1000).toFixed(0)}k`}</strong></div></div><div className="slice-controls"><label>{t("切片高度")}{' '}{height.toFixed(2)} m <input type="range" min="0.05" max={p.room.height-.05} step="0.05" disabled={!layers.slice} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label><label><input type="checkbox" disabled={!layers.slice} checked={vertical} onChange={e=>setVertical(e.target.checked)}/>{t("竖直切片（房间中线）")}</label></div></>:deployment.showSolverEmptyState&&<p className="empty">{t("无可用预估，请精算。精算需数分钟；不会自动提交。")}</p>}
       {result&&<><div className="kpis"><div><span>{isPrediction?t("额定 / 预估所需功率"):t("额定 / CFD 恒温功率")}</span><strong>{result.kpi.rated_power_w.toFixed(0)} / {result.kpi.cfd_heater_power_w.toFixed(0)}<small> W</small></strong></div><div><span>{isPrediction?t("解析 UA 功率"):t("解析估计 / 调节次数")}</span><strong>{result.kpi.analytic_effective_power_w.toFixed(0)}<small> W{!isPrediction&&t(" / {v0} 次",{v0:result.kpi.thermostat_iterations})}</small></strong></div><div><span>{t("恒温占空比")}</span><strong>{(result.kpi.duty_cycle*100).toFixed(1)}<small> %</small></strong></div><div><span>{t("供暖能力")}</span><strong>{capacityText(result.kpi.insufficient_power,warning,language)}</strong></div></div><p className="hint">{isPrediction?t(deployment.staticMode?"static.physics":"S1 仅为无辐射对流模型预估。功率不足时显示的是目标温度场，不代表实际可达到温度；建议精算。"):t("M0 不含辐射；CFD 功率仅对应当前对流模型，解析估计用于 RC 初值。")}</p></>}
       {cfdResult?.kpi.heat_loss_groups_w&&<p className="hint">{t("散热分项：")}{Object.entries(cfdResult.kpi.heat_loss_groups_w).map(([group,w])=>t("{v0} {v1} W",{v0:t(({exterior_walls:'外墙',windows:'窗户',exterior_doors:'外门'} as Record<string,string>)[group]??group),v1:w.toFixed(1)})).join(' · ')}{t("（内门绝热）")}</p>}
       {log&&<details><summary>{t("求解日志")}</summary><pre>{log}</pre></details>}</div>
-      <BillingPanel project={history.present} table={table} result={committedResult} source={cfdResult?'CFD':prediction?.field?'S1':'analytic'} onProjectChange={change}/></article></main></>;
+      <BillingPanel project={history.present} table={table} result={committedResult} source={cfdResult||exactExample?'CFD':prediction?.field?'S1':'analytic'} onProjectChange={applyFromBilling}/></article></main></>;
 }
 createRoot(document.getElementById('root')!).render(<LanguageProvider><App/></LanguageProvider>);
