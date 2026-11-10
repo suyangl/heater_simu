@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {clampPosition,makeSampler,postureHeights,readProbe,restoreProbe} from './probe';
+import {clampPosition,makeSampler,probePose,postureHeights,readProbe,restoreProbe} from './probe';
 import type {Project} from './s1';
 const encode=(values:number[])=>btoa(String.fromCharCode(...new Uint8Array(new Float32Array(values).buffer)));
 const field=(values=[0,1,10,11,100,101,110,111])=>({
@@ -37,14 +37,52 @@ describe('probe posture and preferences',()=>{
     expect(restoreProbe('bad',p.room)).toEqual({posture:'standing',x:2,y:1.5});
     expect(restoreProbe('{"posture":"bad","x":"bad","y":null}',p.room)).toEqual({posture:'standing',x:2,y:1.5});
   });
-  it('uses standing/sitting heights and adds furniture top only for lying, clamped to room height',()=>{
+  it('uses supported sitting heights and lying air offsets, clamped to room height',()=>{
     const settings={posture:'standing' as const,x:2,y:1.5};
     expect(postureHeights(settings,p)).toEqual({head:1.6,ankle:.1,body:.4});
-    expect(postureHeights({...settings,posture:'sitting'},p).head).toBe(1.1);
+    expect(postureHeights({...settings,posture:'sitting'},p).head).toBeCloseTo(.7+.025+.68);
     expect(postureHeights({...settings,posture:'lying'},p).body).toBeCloseTo(1.1);
     expect(postureHeights({posture:'lying',x:0,y:0},p).body).toBe(.4);
     expect(postureHeights({...settings,posture:'lying'},{...p,room:{...p.room,height:.8}}).body).toBe(.8);
     expect(postureHeights(settings,{...p,room:{...p.room,height:1.2}}).head).toBe(1.2);
+  });
+  it('lays the whole figure along the longer support axis and keeps it on the surface',()=>{
+    const horizontal=probePose({posture:'lying',x:1.1,y:1.05},p);
+    expect(horizontal.axis).toBe('x');
+    expect(horizontal.support).toBeCloseTo(.7);
+    expect(horizontal.x-horizontal.length/2).toBeGreaterThanOrEqual(1);
+    expect(horizontal.y-horizontal.width/2).toBeGreaterThanOrEqual(1);
+    const vertical=probePose({posture:'lying',x:1.1,y:.6},{...p,furniture:[{x:1,y:.5,z:0,l:1,w:2,h:.6}]});
+    expect(vertical.axis).toBe('y');
+    expect(vertical.yaw).toBe(Math.PI/2);
+    expect(vertical.x-vertical.width/2).toBeGreaterThanOrEqual(1);
+    expect(vertical.y-vertical.length/2).toBeGreaterThanOrEqual(.5);
+  });
+  it('uses the floor with no furniture and the highest surface when supports overlap',()=>{
+    const settings={posture:'lying' as const,x:0,y:0};
+    const floor=probePose(settings,{...p,furniture:[]});
+    expect(floor.support).toBe(0);
+    expect(floor.x).toBe(floor.length/2);
+    expect(floor.y).toBe(floor.width/2);
+    expect(probePose({...settings,x:2,y:1.5},{...p,furniture:[...p.furniture,{x:1,y:1,z:0,l:2,w:1,h:.9}]}).support).toBe(.9);
+    const small=probePose({posture:'lying',x:1.2,y:1.2},{...p,furniture:[{x:1,y:1,z:0,l:.5,w:.4,h:.5}]});
+    expect(small.length).toBeLessThan(.5);
+    expect(small.width).toBeLessThan(.4);
+  });
+  it('sits on the nearest box edge facing outward, sampling its actual head and extended ankles',()=>{
+    const settings={posture:'sitting' as const,x:2,y:1.4},pose=probePose(settings,p);
+    expect(pose.y).toBe(1);
+    expect(pose.yaw).toBe(Math.PI);
+    expect(pose.seat).toBeCloseTo(.725);
+    const reading=readProbe((x,y,z)=>({value:x+10*y+z,nearest:false}),p,settings);
+    expect(reading.head.value).toBeCloseTo(2+10+.725+.68);
+    expect(reading.ankle.value).toBeCloseTo(2+10*.64+.725-.48);
+    expect(probePose({...settings,x:2.9,y:1.5},p).yaw).toBe(Math.PI/2);
+    expect(probePose({...settings,x:1.1,y:1.5},p).yaw).toBe(-Math.PI/2);
+    expect(probePose({...settings,x:2,y:1.9},p).yaw).toBe(0);
+    const floor=postureHeights({...settings,x:0,y:0},{...p,furniture:[]});
+    expect(floor.head).toBeCloseTo(.76);
+    expect(floor.ankle).toBe(.1);
   });
   it('classifies relative to setpoint ±1 °C and flags vertical differences above 3 °C',()=>{
     const settings={posture:'standing' as const,x:2,y:1.5};

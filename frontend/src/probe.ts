@@ -17,13 +17,32 @@ export function restoreProbe(raw:string|null,room:Room):ProbeSettings {
   return {posture:['standing','sitting','lying'].includes(value.posture??'')?value.posture!:'standing',
     ...clampPosition({x:value.x??room.length/2,y:value.y??room.width/2},room)};
 }
+export function probePose(settings:ProbeSettings,p:Pick<Project,'room'|'furniture'>) {
+  let {x,y}=clampPosition(settings,p.room);
+  const box=settings.posture==='standing'?undefined:p.furniture
+    .filter(b=>x>=b.x&&x<=b.x+b.l&&y>=b.y&&y<=b.y+b.w)
+    .sort((a,b)=>(b.z+b.h)-(a.z+a.h))[0];
+  const support=box?box.z+box.h:0,bounds=box??{x:0,y:0,l:p.room.length,w:p.room.width};
+  const axis=bounds.l>=bounds.w?'x':'y';
+  const length=Math.min(1.75,(axis==='x'?bounds.l:bounds.w)-.04),width=Math.min(.65,(axis==='x'?bounds.w:bounds.l)-.04);
+  let yaw=axis==='x'?0:Math.PI/2;
+  if(settings.posture==='lying'){
+    const mx=(axis==='x'?length:width)/2,my=(axis==='x'?width:length)/2;
+    x=Math.max(bounds.x+mx,Math.min(bounds.x+bounds.l-mx,x));
+    y=Math.max(bounds.y+my,Math.min(bounds.y+bounds.w-my,y));
+  }else if(settings.posture==='sitting'&&box){
+    const edges=[{d:y-box.y,x,y:box.y,yaw:Math.PI},{d:box.y+box.w-y,x,y:box.y+box.w,yaw:0},
+      {d:x-box.x,x:box.x,y,yaw:-Math.PI/2},{d:box.x+box.l-x,x:box.x+box.l,y,yaw:Math.PI/2}];
+    const edge=edges.sort((a,b)=>a.d-b.d)[0];x=edge.x;y=edge.y;yaw=edge.yaw;
+  }else if(settings.posture==='sitting')yaw=Math.PI;
+  const seat=box?support+.025:.08;
+  return {x,y,support,seat,axis,yaw,length,width};
+}
 export function postureHeights(settings:ProbeSettings,p:Pick<Project,'room'|'furniture'>) {
-  const pos=clampPosition(settings,p.room);
-  const support=settings.posture==='lying'?Math.max(0,...p.furniture
-    .filter(b=>pos.x>=b.x&&pos.x<=b.x+b.l&&pos.y>=b.y&&pos.y<=b.y+b.w)
-    .map(b=>b.z+b.h)):0;
-  return {head:clamp(settings.posture==='standing'?1.6:1.1,p.room.height),
-    ankle:clamp(.1,p.room.height),body:clamp(support+.4,p.room.height)};
+  const pose=probePose(settings,p);
+  return {head:clamp(settings.posture==='sitting'?pose.seat+.68:settings.posture==='standing'?1.6:1.1,p.room.height),
+    ankle:clamp(settings.posture==='sitting'?Math.max(.1,pose.seat-.48):.1,p.room.height),
+    body:clamp(pose.support+.4,p.room.height)};
 }
 export function makeSampler(field:TemperatureField|null,boxes:Project['furniture']=[]) {
   const missing:Sample={value:null,nearest:false};
@@ -66,8 +85,9 @@ export function makeSampler(field:TemperatureField|null,boxes:Project['furniture
   };
 }
 export function readProbe(sample:ReturnType<typeof makeSampler>,p:Project,settings:ProbeSettings) {
-  const {x,y}=clampPosition(settings,p.room),heights=postureHeights(settings,p);
-  const head=sample(x,y,heights.head),ankle=sample(x,y,heights.ankle),body=sample(x,y,heights.body);
+  const {x,y,yaw}=probePose(settings,p),heights=postureHeights(settings,p);
+  const forward=settings.posture==='sitting'?.36:0;
+  const head=sample(x,y,heights.head),ankle=sample(x+Math.sin(yaw)*forward,y+Math.cos(yaw)*forward,heights.ankle),body=sample(x,y,heights.body);
   const delta=head.value!==null&&ankle.value!==null?head.value-ankle.value:null;
   const mean=settings.posture==='lying'?body.value:
     head.value!==null&&ankle.value!==null?(head.value+ankle.value)/2:null;
