@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {clampPosition,makeSampler,probePose,postureHeights,readProbe,restoreProbe} from './probe';
+import {breathingScale,clampPosition,makeSampler,probePose,postureHeights,readProbe,restoreProbe} from './probe';
 import type {Project} from './s1';
 const encode=(values:number[])=>btoa(String.fromCharCode(...new Uint8Array(new Float32Array(values).buffer)));
 const field=(values=[0,1,10,11,100,101,110,111])=>({
@@ -31,6 +31,12 @@ describe('probe sampler',()=>{
   });
 });
 describe('probe posture and preferences',()=>{
+  it('breathes gently at 0.25 Hz and disables animation for reduced motion',()=>{
+    expect(breathingScale(1,false)).toBeCloseTo(1.025);
+    expect(breathingScale(3,false)).toBe(1);
+    expect(breathingScale(0,false)).toBeCloseTo(breathingScale(4,false));
+    expect(breathingScale(1,true)).toBe(1);
+  });
   it('clamps position, restores persisted settings and rejects corrupt storage',()=>{
     expect(clampPosition({x:8,y:-2},p.room)).toEqual({x:4,y:0});
     expect(restoreProbe('{"posture":"lying","x":2,"y":1.5}',p.room)).toEqual({posture:'lying',x:2,y:1.5});
@@ -50,6 +56,7 @@ describe('probe posture and preferences',()=>{
     const horizontal=probePose({posture:'lying',x:1.1,y:1.05},p);
     expect(horizontal.axis).toBe('x');
     expect(horizontal.support).toBeCloseTo(.7);
+    expect(horizontal.length).toBeCloseTo(1.7);
     expect(horizontal.x-horizontal.length/2).toBeGreaterThanOrEqual(1);
     expect(horizontal.y-horizontal.width/2).toBeGreaterThanOrEqual(1);
     const vertical=probePose({posture:'lying',x:1.1,y:.6},{...p,furniture:[{x:1,y:.5,z:0,l:1,w:2,h:.6}]});
@@ -62,11 +69,12 @@ describe('probe posture and preferences',()=>{
     const settings={posture:'lying' as const,x:0,y:0};
     const floor=probePose(settings,{...p,furniture:[]});
     expect(floor.support).toBe(0);
-    expect(floor.x).toBe(floor.length/2);
+    expect(floor.x).toBe(floor.length*1.8/1.7/2);
     expect(floor.y).toBe(floor.width/2);
     expect(probePose({...settings,x:2,y:1.5},{...p,furniture:[...p.furniture,{x:1,y:1,z:0,l:2,w:1,h:.9}]}).support).toBe(.9);
     const small=probePose({posture:'lying',x:1.2,y:1.2},{...p,furniture:[{x:1,y:1,z:0,l:.5,w:.4,h:.5}]});
     expect(small.length).toBeLessThan(.5);
+    expect(small.length).toBeCloseTo(.5-.14);
     expect(small.width).toBeLessThan(.4);
   });
   it('sits on the nearest box edge facing outward, sampling its actual head and extended ankles',()=>{

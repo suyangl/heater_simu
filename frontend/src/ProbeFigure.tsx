@@ -4,7 +4,7 @@ import type {ThreeEvent} from '@react-three/fiber';
 import {Html} from '@react-three/drei';
 import * as THREE from 'three';
 import type {Project} from './s1';
-import {clampPosition,probePose,ProbeReading,ProbeSettings,Sample} from './probe';
+import {clampPosition,lyingHeadOffset,probePose,ProbeReading,ProbeSettings,Sample} from './probe';
 import {LyingFigure,SittingFigure} from './ProbePostures';
 import {useLanguage} from './Language';
 import './probe.css';
@@ -71,19 +71,19 @@ export function ProbeFigure({p,settings,reading,onChange,onDragging}:{p:Project;
   return <>
     {lying&&<LyingFigure pose={pose} events={events}/>}
     {sitting&&<SittingFigure pose={pose} events={events}/>}
-    <Html position={[lying?x-Math.cos(pose.yaw)*pose.length*.335:x,
+    <Html position={[lying?x+Math.cos(pose.yaw)*pose.length*lyingHeadOffset:x,
       lying?pose.support+.12:sitting?reading.heights.head+.15:0,
-      lying?y+Math.sin(pose.yaw)*pose.length*.335:y]} zIndexRange={[20,0]} style={{pointerEvents:'none'}}>
+      lying?y-Math.sin(pose.yaw)*pose.length*lyingHeadOffset:y]} zIndexRange={[20,0]} style={{pointerEvents:'none'}}>
     <div className="probe-marker" data-posture={settings.posture} style={{transform:lying?'translate(24px,-100%)':sitting?'translate(24px,-50%)':'translate(-31px,-100%)'}}
       onPointerDown={e=>{e.preventDefault();begin(e,e.currentTarget);}} onPointerMove={move}
       onPointerUp={e=>end(e,e.currentTarget)} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       {!lying&&!sitting&&<svg className="probe-glyph" width="62" height="115" viewBox="0 0 72 120" role="img" aria-label={t('probe.title')}>
-        <g stroke="#203b46" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <g stroke="#000" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none">
           <path d="M36 31 L36 76 M36 43 L14 62 M36 43 L58 62 M36 76 L20 116 M36 76 L52 116"/>
-          <circle cx="36" cy="18" r="12" fill="#d9f4ec" stroke="#087f75" strokeWidth="3"/>
+          <circle cx="36" cy="18" r="12" fill="#F5C9A0" stroke="#000" strokeWidth="5"/>
         </g>
-        <g fill="#203b46"><circle cx="32" cy="16" r="1.6"/><circle cx="40" cy="16" r="1.6"/></g>
-        <path d="M32 22 Q36 26 40 22" stroke="#087f75" strokeWidth="2" fill="none" strokeLinecap="round"/>
+        <g fill="#000"><circle cx="32" cy="16" r="1.6"/><circle cx="40" cy="16" r="1.6"/></g>
+        <path d="M32 22 Q36 26 40 22" stroke="#000" strokeWidth="2" fill="none" strokeLinecap="round"/>
       </svg>}
       <ProbeReadout reading={reading} lying={lying} t={t}/>
     </div>

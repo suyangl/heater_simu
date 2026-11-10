@@ -6,6 +6,8 @@ export type ProbeSettings={posture:Posture;x:number;y:number};
 export type TemperatureField={grid:{nx:number;ny:number;nz:number;origin:number[];spacing:number[]};T:{data:string}};
 export type Sample={value:number|null;nearest:boolean};
 type Room=Project['room'];
+export const lyingHeadOffset=-.63/1.7;
+export const breathingScale=(seconds:number,reduced:boolean)=>reduced?1:1+.025*(1+Math.sin(seconds*Math.PI*.5))/2;
 const clamp=(v:number,max:number)=>Math.max(0,Math.min(max,v));
 export const clampPosition=(p:{x:number;y:number},room:Room)=>({
   x:clamp(Number.isFinite(p.x)?p.x:room.length/2,room.length),
@@ -24,10 +26,11 @@ export function probePose(settings:ProbeSettings,p:Pick<Project,'room'|'furnitur
     .sort((a,b)=>(b.z+b.h)-(a.z+a.h))[0];
   const support=box?box.z+box.h:0,bounds=box??{x:0,y:0,l:p.room.length,w:p.room.width};
   const axis=bounds.l>=bounds.w?'x':'y';
-  const length=Math.min(1.75,(axis==='x'?bounds.l:bounds.w)-.04),width=Math.min(.65,(axis==='x'?bounds.w:bounds.l)-.04);
+  const length=Math.min(1.7,(axis==='x'?bounds.l:bounds.w)-.14),width=Math.min(.65,(axis==='x'?bounds.w:bounds.l)-.04);
   let yaw=axis==='x'?0:Math.PI/2;
   if(settings.posture==='lying'){
-    const mx=(axis==='x'?length:width)/2,my=(axis==='x'?width:length)/2;
+    const footprint=length*1.8/1.7;
+    const mx=(axis==='x'?footprint:width)/2,my=(axis==='x'?width:footprint)/2;
     x=Math.max(bounds.x+mx,Math.min(bounds.x+bounds.l-mx,x));
     y=Math.max(bounds.y+my,Math.min(bounds.y+bounds.w-my,y));
   }else if(settings.posture==='sitting'&&box){
