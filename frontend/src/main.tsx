@@ -107,9 +107,10 @@ function App() {
   useEffect(()=>{void request('/api/surrogate/artifact').catch(()=>request('/surrogate/s1-v1.json')).then(data=>setTable(prepare(data))).catch(()=>setTableError('预估表尚不可用，请精算'));},[]);
   function change(next:Project) {setP(next);setResult(null);setJobId(null);setProgress(0);setLog('');setStatus('输入已更新');setError('');window.history.replaceState(null,'',window.location.pathname);}
   function loadPreset(id:string,pos:string) {
+    if(!id){setTemplate('');return;}
     if(!table?.presets[id]?.[pos])return;
     const next=structuredClone(table.presets[id][pos]);
-    next.dpe=id===template?p.dpe:'A';next.outdoor_temp=p.outdoor_temp;
+    next.dpe=p.dpe;next.outdoor_temp=p.outdoor_temp;
     next.heater.power_w=p.heater.power_w;next.heater.setpoint_c=p.heater.setpoint_c;
     setTemplate(id);setPosition(pos);change(next);
   }
