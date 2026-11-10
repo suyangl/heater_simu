@@ -1,0 +1,26 @@
+{
+  "version": "v1",
+  "model": "M0 convector, no radiation, CFD thermostat",
+  "outdoor_temp": 5,
+  "setpoint_c": 19,
+  "solver_power_ceiling_w": 2500,
+  "training_dpe": ["A", "C", "E", "G"],
+  "positions": ["under_window", "beside_window", "opposite_wall", "interior_corner"],
+  "holdout_dpe": ["B", "D", "F"],
+  "holdouts_per_dpe": 2,
+  "holdout_seed": 719,
+  "templates": [
+    {"id": "bedroom_small", "room": {"length": 3.5, "width": 3, "height": 2.5}, "furniture": [
+      {"x": 0.35, "y": 0.55, "l": 1.4, "w": 1.9, "h": 0.55},
+      {"x": 2.65, "y": 1.5, "l": 0.6, "w": 1.1, "h": 1.9}]},
+    {"id": "bedroom", "room": {"length": 4, "width": 3.5, "height": 2.5}, "furniture": [
+      {"x": 0.35, "y": 0.55, "l": 1.9, "w": 1.4, "h": 0.55},
+      {"x": 3.05, "y": 1.1, "l": 0.65, "w": 1.2, "h": 1.9}]},
+    {"id": "living", "room": {"length": 5, "width": 4, "height": 2.5}, "furniture": [
+      {"x": 0.4, "y": 0.6, "l": 2.1, "w": 0.85, "h": 0.9},
+      {"x": 2.8, "y": 1.8, "l": 1.2, "w": 0.8, "h": 0.55}]},
+    {"id": "study", "room": {"length": 3, "width": 2.5, "height": 2.5}, "furniture": [
+      {"x": 0.35, "y": 0.55, "l": 1.2, "w": 0.6, "h": 0.75},
+      {"x": 2.1, "y": 1.1, "l": 0.6, "w": 0.8, "h": 1.8}]}
+  ]
+}

@@ -52,6 +52,60 @@ docker compose logs worker
 
 API：`GET /api/health`（含 worker 心跳）、`GET /api/example`、`POST /api/simulate`、`GET /api/jobs/{id}`（状态/日志尾）、`GET /api/jobs/{id}/result`。
 
+## M1 · 数据集 v1（本步骤不构建 S1 表或改前端）
+
+`trainer/doe-v1.json` 版本化定义 4 个固定家具/窗户的房间模板 × DPE A/C/E/G × 4 个暖器位置，共 **64 个训练案例**；固定随机种子另取 B/D/F 各 2 个组合，共 **6 个 holdout**。仅 M0 对流暖器、无辐射，室外 5°C、设定 19°C。额定功率**不是采样维度**：2500 W 只是沿用 M0 输入上限的统一求解安全上限；达到上限却不能维持设定的案例拒收，不能把截断功率当作所需功率。S1 的额定功率比较与温差缩放留给下一步骤。
+
+```sh
+# 8 GB 机器默认 2 CPU / 3 GB 容器、一次一个案例；后台运行，退出终端不影响
+docker compose --profile train up -d --build trainer
+# 同一命令可恢复：跳过已有且有效的 accepted 结果，每个案例累计最多两次尝试
+docker compose logs -f trainer
+docker compose exec -T trainer python -m trainer.dataset --status
+# trainer 已退出时也可查询
+docker compose --profile train run --rm --no-deps trainer --status
+```
+
+在更大机器上可显式增加容器配额，例如 Linux/WSL：`TRAIN_CPUS=6 TRAIN_MEMORY=12g docker compose --profile train up -d --build trainer`。自动并行度取容器 CPU/2 和内存（预留 1 GB、每案例预算 3 GB）的较小值，至少 1；训练容器关闭 MPI 默认 CPU 绑定，避免不同案例争抢相同两个核。每案例始终复用 worker 的两进程求解、恒温器、最终平均与后处理，不修改物理公式，不使用在线任务队列。可用 `docker compose --profile train run --rm --no-deps trainer --workers 1` 指定更低并行度。不要同时运行两个 trainer：数据集文件锁防止同目录重复计算。
+
+数据在命名卷的 `/data/datasets/v1/`：`manifest.json` 保存完整设计、输入和物理源码 SHA256（定义/物理变更需新目录）；`batch.log` 为追加式 JSONL 日志，`status.json` 为最近完成事件的汇总；`--status` 实时读取逐案例元数据。`cases/<id>/metadata.json` 含 split、模板/位置、输入、解析 UA/功率、CFD 所需功率、均温/极值、能量误差、耗时与状态。`result.json` 保留原有平均网格及可视化字段。**只使用 status=accepted 的数据训练**：能量误差 >10%、均温偏离 19°C >0.5°C、功率不足或异常密度均拒收。失败/拒收也重试一次并保留每次元数据、错误及日志；中断的运行计作一次尝试，重试从新网格开始，绝不混用半截平均场。已成功案例删除大体积 OpenFOAM 工作目录，失败的最后一次工作目录保留排错。耗尽重试后不会在恢复时无限重跑。
+
+测试：`docker compose run --rm --no-deps -v "$PWD:/review:ro" -w /review -e PYTHONPATH=/review/api:/review api python -m pytest -q -p no:cacheprovider api/tests trainer`（只读源码挂载不写 pytest 缓存）。
+
+### 数据集恒温器与失败恢复
+
+训练通过同一个 worker 的 opt-in `settled` 控制模式运行；交互任务仍使用原有控制方式及 **1200 s** 默认预算。训练的 `TRAIN_SOLVE_BUDGET` 默认为 **3600 s/次**，可显式调整。不是放宽验收：均温仍须距设定 ≤0.5°C，能量误差须 **<10%**。训练先在固定 Q 下等待相邻平均窗口温度变化 ≤0.15°C 且能量误差 <5%，再更新功率，避免把仍在冷却/升温的状态误当成平衡响应。更新使用受限、0.7 阻尼的正斜率 secant；斜率无效时退回阻尼比例更新，单次变化限制 ±35%。空气 RC 时间常数 >3000 s 时使用较长的 2000/1500 次初始/后续稳定块，其他情况为 1500/1000 次；每块末 800 次测量。达到目标后固定功率再做完整 **2000 次最终平均**；若漂移或不平衡则继续稳定/控制，而不是在第一次穿过设定温度时提前终止。所有温度/热损失均来自同一平均窗口，物理 BC、源区及有限体积字典不变。
+
+每次尝试保存 `attempt-N-thermostat.json`，含各块的 Q、均温、热损失、能量误差与 settle/final 阶段。控制策略升级后，在 trainer **已停止**时执行：
+
+```sh
+docker compose stop trainer
+docker compose --profile train build trainer
+docker compose --profile train run --rm --no-deps trainer --reset-failed
+# 本 VM 恢复时保留原来的并行配额
+TRAIN_CPUS=6 TRAIN_MEMORY=12g docker compose --profile train up -d trainer
+```
+
+`--reset-failed` 只做归档/重置然后退出：完整旧 manifest、失败/拒收/中断目录移动至 `audit/retry-*`，累计尝试次数从 0 开始；有效 accepted 结果及元数据保持原字节不变，并在 manifest migration 中记录保留名单及旧控制器指纹。只适用于明确批准的收敛控制升级；改变房间设计或物理模型仍应使用新版本/目录。
+
+### M1 / S1 即时查表预估
+
+`python -m trainer.build_s1 --root /data/datasets/v1` 只读取 accepted 记录；不会提交求解任务、取得训练锁或修改案例。输出 `s1-v1.json`，包含 24×20×12 单位房间中心网格、uint16/base64 θ（65535 为固体/缺测掩码）、每例比例/偏移、k、形状统计、64 个训练组合的明确 availability 和四种完整预设。θ=(T−T_out)/(CFD 空气均温−T_out)，k=Q_required/[UA_analytic·(T_set−T_out)]；保留 averaged CFD 的空间形状。B/D/F holdout 不进入查表。
+
+运行中的 trainer 不需要重建或停止。可从 API 容器读取当前数据生成快照，然后复制到前端：
+
+```sh
+docker compose run --rm --no-deps -v "$PWD:/review:ro" -w /review -e PYTHONPATH=/review/api:/review api python -m trainer.build_s1
+docker compose cp api:/data/datasets/v1/s1-v1.json frontend/public/surrogate/s1-v1.json
+docker compose up -d --build --no-deps api frontend
+```
+
+浏览器优先读取 `/api/surrogate/artifact`（named volume 当前快照），回退到构建时的 `/surrogate/s1-v1.json`；`GET /api/surrogate/manifest` 返回快照时间、availability、轴与验证结果。新案例不会自动进入已有快照，批次完成后重新构建/验证。房间/家具/窗户/暖器几何须在 **2 cm** 内匹配同一模板与位置；DPE 只按墙 U 在可用训练节点间线性插值 k 与 θ。区间内或已知精确节点为高置信度，超区间使用最近邻并标中，自定义/缺失分类组合则低置信度、不显示假预估。置信度表示插值覆盖条件，不是经过验证的误差保证。额定功率不影响 θ 或 k，只用于容量判定；功率不足时目标温度场不代表可达到的实际温度。M0 不含制冷，不对 T_set≤T_out 的工况生成供热预估。
+
+前端移植与 `models.py` 相同的 UA（含窗与 ACH）；T=T_out+(T_set−T_out)θ，Q_required=k·UA_user·(T_set−T_out)。每次输入修改都取消旧精算视图并重算预估；不会自动提交精算。表面、流线和等温面仅显示在 OpenFOAM 结果中。
+
+验证：`python -m trainer.validate_s1 --root /data/datasets/v1`。训练记录严格留一法，holdout 始终对只含训练记录的表验证；无同分类邻居会标记 unscored，不作为零误差。报告 θ 场误差乘基准 ΔT 的 RMSE（°C）、原始 CFD 温度场 RMSE、空气均温 MAE、功率 MAPE/最大相对误差及覆盖情况。当前仅有少量 accepted 节点，不能宣称达到完整数据集精度；批次完成后须重跑。测试：上述 pytest 命令以及 `cd frontend && npm ci && npm test && npm run build`（Node ≥22.12）。
+
 ### ParaView 风格平均场
 
 结果视图使用石板灰背景、温度着色边界、速度着色流线与半透明暖羽流等温面，配有白色虚线包围框、XYZ 方向器和带细刻度的温度/风速色标。墙面保持透明，可分别切换墙面、表面着色、流线、等温面和温度切片。旧结果缺少新字段时仍可显示几何与原有温度切片；不可用图层会禁用。
