@@ -16,6 +16,6 @@ export function createDeployment(staticMode:boolean,fetcher:typeof fetch=fetch) 
   return {staticMode,request,loadArtifact,canSimulate:!staticMode,showSolverEmptyState:!staticMode,
     jobFromSearch:(search:string)=>staticMode?null:new URLSearchParams(search).get('job'),
     canPoll:(jobId:string|null)=>!staticMode&&!!jobId,
-    showLayer:(layer:string)=>!staticMode||!['streamlines','iso','speedLegend'].includes(layer)};
+    showLayer:(layer:string,hasExample=false)=>!staticMode||hasExample||!['streamlines','iso','speedLegend'].includes(layer)};
 }
 export const deployment=createDeployment(import.meta.env.MODE==='static'||import.meta.env.VITE_STATIC==='1');

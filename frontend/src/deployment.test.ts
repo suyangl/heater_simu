@@ -2,6 +2,11 @@ import {describe,it,expect,vi} from 'vitest';
 import {createDeployment} from './deployment';
 
 describe('static deployment gating',()=>{
+  it('allows bundled example flow layers without enabling solver or API access',()=>{
+    const mode=createDeployment(true);
+    for(const layer of ['streamlines','iso','speedLegend'])expect(mode.showLayer(layer,true)).toBe(true);
+    expect(mode.canSimulate).toBe(false);expect(mode.canPoll('example')).toBe(false);
+  });
   it('omits the redundant solver empty-state notice only in static mode',()=>{
     expect(createDeployment(true).showSolverEmptyState).toBe(false);
     expect(createDeployment(false).showSolverEmptyState).toBe(true);
