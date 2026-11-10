@@ -120,3 +120,12 @@ export function combinedPlan(input:PlannerInput,selected:Measure[],preferences:P
   const investment=selected.length&&values.every(v=>v!==null)?values.reduce<number>((sum,v)=>sum+v!,0):null;
   return {scenario,...difference(baseline,scenario,preferences.assumptions.emission,investment)};
 }
+export function evaluatePlanner(input:PlannerInput,preferences:PlannerPreferences) {
+  const data=buildPlanner(input,preferences),groups=new Set<string>();
+  const selected=data.candidates.map(c=>c.measure).filter(m=>{
+    if(!preferences.selected.includes(m.id)||groups.has(m.group))return false;
+    groups.add(m.group);return true;
+  });
+  try{return {data,selected,combined:combinedPlan(input,selected,preferences),planError:null};}
+  catch{return {data,selected,combined:null,planError:'planner.combinationUnavailable'};}
+}
