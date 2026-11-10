@@ -13,7 +13,7 @@ export function createDeployment(staticMode:boolean,fetcher:typeof fetch=fetch) 
     if(staticMode)return request('/surrogate/s1-v1.json');
     return request('/api/surrogate/artifact').catch(()=>request('/surrogate/s1-v1.json'));
   }
-  return {staticMode,request,loadArtifact,canSimulate:!staticMode,
+  return {staticMode,request,loadArtifact,canSimulate:!staticMode,showSolverEmptyState:!staticMode,
     jobFromSearch:(search:string)=>staticMode?null:new URLSearchParams(search).get('job'),
     canPoll:(jobId:string|null)=>!staticMode&&!!jobId,
     showLayer:(layer:string)=>!staticMode||!['streamlines','iso','speedLegend'].includes(layer)};
