@@ -52,4 +52,12 @@ docker compose logs worker
 
 API：`GET /api/health`（含 worker 心跳）、`GET /api/example`、`POST /api/simulate`、`GET /api/jobs/{id}`（状态/日志尾）、`GET /api/jobs/{id}/result`。
 
+### ParaView 风格平均场
+
+结果视图使用石板灰背景、温度着色边界、速度着色流线与半透明暖羽流等温面，配有白色虚线包围框、XYZ 方向器和带细刻度的温度/风速色标。墙面保持透明，可分别切换墙面、表面着色、流线、等温面和温度切片。旧结果缺少新字段时仍可显示几何与原有温度切片；不可用图层会禁用。
+
+`result.json` 保留原有 T 网格，并增加同网格 `U`（此处为速度模，`quantity=speed_m_s`、`components=1`）。无效/实体点沿用 T 的 NaN 掩码。`surfaces` 按边界 patch 导出三角网格，`isosurface` 默认取空气均温加 0.6 倍最大温升；两者含 `positions`、`indices`、逐顶点 `T`（°C）与 `speed`（m/s）。`streamlines` 从暖器空气层及稀疏室内种子沿平均速度积分，含相同逐点字段以及 `indices`/`offsets` 多段线连接表。坐标保持 OpenFOAM XYZ（Z 向上），前端转换到 Three.js 坐标。所有二进制数组均为 little-endian Float32/base64，连接表为 Uint32/base64。
+
+表面按 patch 简化、等温面限制约 4000 个三角形，流线最多 180 条、每条最多 96 点；整体 JSON 限制 3 MB。静止或等温场可没有流线/等温面。流线为平均场中的空间积分线，不代表瞬态粒子轨迹。
+
 目录：`api/app` 模型、网格/字典生成、队列与路由；`worker` OpenFOAM 运行与重采样；`frontend` 中文 3D 编辑器；`scripts/e2e.sh` 端到端验收。设计依据见 [PRD](docs/PRD.md)。
