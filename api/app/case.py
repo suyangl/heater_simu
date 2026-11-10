@@ -56,10 +56,14 @@ def generate(project: Project, path: Path):
     for box in heating_boxes:
         for axis, bounds in zip(axes, box):
             axis.update(bounds)
-    along = 0 if project.exterior_wall in ('N', 'S') else 1
-    axes[along].update((win.offset, win.offset+win.width))
-    axes[2].update((win.sill, win.sill+win.height))
+    openings = project.opening_patches()
+    for _, opening in openings:
+        along = 0 if opening.wall in ('N', 'S') else 1
+        axes[along].update((opening.offset, opening.offset+opening.width))
+        axes[2].update((opening.sill, opening.sill+opening.height))
     axes = [sorted({round(v, 8) for v in axis}) for axis in axes]
+    if math.prod(len(axis)-1 for axis in axes) > 150000:
+        raise ValueError('几何分割过多：请减少门窗或家具的不同边界坐标')
     spacing = .08
     while True:
         counts = [[max(1, math.ceil((b-a)/spacing)) for a, b in zip(axis, axis[1:])] for axis in axes]
@@ -79,7 +83,8 @@ def generate(project: Project, path: Path):
         corners = [(i,j,k), (i+1,j,k), (i+1,j+1,k), (i,j+1,k),
                    (i,j,k+1), (i+1,j,k+1), (i+1,j+1,k+1), (i,j+1,k+1)]
         cells[ijk] = [index[tuple(axes[d][c[d]] for d in range(3))] for c in corners]
-    faces = {name: [] for name in ('N','S','E','W','floor','ceiling','window','heater','furniture')}
+    names = ('N','S','E','W','floor','ceiling','window','heater','furniture') if project.legacy else ('N','S','E','W','floor','ceiling','heater','furniture',*(p for p,_ in openings))
+    faces = {name: [] for name in names}
     directions = [(0,-1,'W',(0,4,7,3)), (0,1,'E',(1,2,6,5)),
                   (1,-1,'S',(0,1,5,4)), (1,1,'N',(3,7,6,2)),
                   (2,-1,'floor',(0,3,2,1)), (2,1,'ceiling',(4,5,6,7))]
@@ -98,8 +103,11 @@ def generate(project: Project, path: Path):
                 continue
             patch = solid.get(neighbor, name)
             center = [(axes[d][ijk[d]]+axes[d][ijk[d]+1])/2 for d in range(3)]
-            if patch == project.exterior_wall and win.offset < center[along] < win.offset+win.width and win.sill < center[2] < win.sill+win.height:
-                patch = 'window'
+            for opening_patch, opening in openings:
+                along = 0 if opening.wall in ('N', 'S') else 1
+                if patch == opening.wall and opening.offset < center[along] < opening.offset+opening.width and opening.sill < center[2] < opening.sill+opening.height:
+                    patch = opening_patch
+                    break
             faces[patch].append('('+' '.join(str(verts[n]) for n in local)+')')
     active = [p for p, f in faces.items() if f]
     def write(rel, body, cls='dictionary'):
@@ -145,13 +153,16 @@ mixture { specie { molWeight 28.96; } thermodynamics { Cp 1005; Hf 0; } transpor
     write('constant/turbulenceProperties', 'simulationType RAS; RAS { model kEpsilon; turbulence on; printCoeffs on; }')
     write('constant/radiationProperties', 'radiationModel none;')
     wall_u, window_u = cfd_coefficient(thermal['wall_h_eff']), cfd_coefficient(U_VALUES[project.dpe][1])
+    coefficients = {wall: wall_u for wall in project.wall_set}
+    coefficients.update({patch: window_u if o.type == 'window' else cfd_coefficient(o.u_value)
+                         for patch, o in openings if o.wall in project.wall_set})
     initial = project.outdoor_temp+273.15+thermal['effective_power_w']/thermal['ua_total']
     for name, dims, val, cls in [('T','[0 0 0 1 0 0 0]',str(initial),'volScalarField'), ('U','[0 1 -1 0 0 0 0]','(0 0 0)','volVectorField'), ('p','[1 -1 -2 0 0 0 0]','101325','volScalarField'), ('p_rgh','[1 -1 -2 0 0 0 0]','101325','volScalarField'), ('alphat','[1 -1 -1 0 0 0 0]','0','volScalarField')]:
         bcs = []
         for patch in active:
             bc = 'type zeroGradient;'
-            if name == 'T' and patch in (project.exterior_wall, 'window'):
-                mode = f'mode coefficient; h uniform {window_u if patch == "window" else wall_u}; Ta constant {project.outdoor_temp+273.15};'
+            if name == 'T' and patch in coefficients:
+                mode = f'mode coefficient; h uniform {coefficients[patch]}; Ta constant {project.outdoor_temp+273.15};'
                 bc = f'type externalWallHeatFluxTemperature; {mode} kappaMethod fluidThermo; value uniform {initial};'
             elif name == 'U':
                 bc = 'type noSlip;'

@@ -58,6 +58,16 @@ class PostprocessTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.process()
 
+    def test_corner_loss_groups_exclude_interior_door(self):
+        project = Project.model_validate_json((Path(__file__).parents[1]/'api/tests/fixtures/corner_project.json').read_text())
+        (self.path/'project.json').write_text(project.model_dump_json())
+        patches = {'heater':0,'N':-100,'E':-100,'window_0':-60,'window_1':-70,'door_2':-75.3,'door_3':0}
+        self.flux.write_text(''.join(f'{t} {p} 0 0 {v}\n' for t in (2,3) for p,v in patches.items()))
+        kpi = self.process()['kpi']
+        self.assertAlmostEqual(kpi['heat_loss_w'],405.3)
+        self.assertEqual(kpi['heat_loss_groups_w'],{'exterior_walls':200,'windows':130,'exterior_doors':75.3})
+        self.assertNotIn('door_3',kpi['heat_loss_split_w'])
+
     def test_incomplete_flux_window(self):
         self.flux.write_text('3 heater 0 0 0\n3 N -1 0 -200\n3 window -1 0 -205.3\n')
         with self.assertRaisesRegex(ValueError, 'averaging window'):
