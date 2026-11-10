@@ -1,6 +1,9 @@
-export type Box = { x:number; y:number; z:number; l:number; w:number; h:number };
+export type Box = { x:number; y:number; z:number; l:number; w:number; h:number;kind?:string;name?:string };
 export type Wall = 'N'|'S'|'E'|'W';
-export type Project = {room:{length:number;width:number;height:number};exterior_wall:Wall;window:{offset:number;width:number;height:number;sill:number};dpe:string;outdoor_temp:number;heater:{power_w:number;setpoint_c:number;wall:Wall;offset:number;z:number;length:number;depth:number;height:number};furniture:Box[]};
+export type Opening = {type:'window'|'door';wall:Wall;offset:number;width:number;height:number;sill:number;u_value?:number};
+export type Project = {room:{length:number;width:number;height:number};exterior_wall:Wall;window:{offset:number;width:number;height:number;sill:number};exterior_walls?:Wall[];openings?:Opening[];dpe:string;outdoor_temp:number;heater:{power_w:number;setpoint_c:number;wall:Wall;offset:number;z:number;length:number;depth:number;height:number};furniture:Box[]};
+export const openingsOf=(p:Project):Opening[]=>p.openings??[{...p.window,type:'window',wall:p.exterior_wall}];
+export const exteriorOf=(p:Project):Wall[]=>p.exterior_walls??[p.exterior_wall];
 type Entry = {id:string;template:string;position:string;dpe:string;wall_u:number;k:number;theta:{min:number;scale:number;data:string}};
 export type Table = {version:string;grid:{nx:number;ny:number;nz:number};tolerance_m:number;axes:{templates:string[];positions:string[];u_values:Record<string,[number,number]>;ach:Record<string,number>};presets:Record<string,Record<string,Project>>;cases:Entry[];availability:{available:boolean}[];validation?:unknown};
 const cache = new WeakMap<Entry,Float32Array>();
@@ -15,8 +18,9 @@ function unpack(row:Entry) {
 export function prepare(table:Table) {for(const row of table.cases)unpack(row);return table;}
 export function ua(p:Project,table:Table) {
   const [wall,window]=table.axes.u_values[p.dpe]??[NaN,NaN],r=p.room;
-  const area=(p.exterior_wall==='N'||p.exterior_wall==='S'?r.length:r.width)*r.height-p.window.width*p.window.height;
-  return area>0?wall*area+window*p.window.width*p.window.height+.34*table.axes.ach[p.dpe]*r.length*r.width*r.height:NaN;
+  const walls=exteriorOf(p),openings=openingsOf(p).filter(o=>walls.includes(o.wall));
+  const area=walls.reduce((sum,w)=>sum+(w==='N'||w==='S'?r.length:r.width)*r.height,0)-openings.reduce((sum,o)=>sum+o.width*o.height,0);
+  return area>0?wall*area+openings.reduce((sum,o)=>sum+(o.type==='window'?window:o.u_value??1.8)*o.width*o.height,0)+.34*table.axes.ach[p.dpe]*r.length*r.width*r.height:NaN;
 }
 function close(a:unknown,b:unknown,tolerance:number):boolean {
   if(typeof a==='number'&&typeof b==='number')return Number.isFinite(a)&&Math.abs(a-b)<=tolerance;
@@ -26,8 +30,9 @@ function close(a:unknown,b:unknown,tolerance:number):boolean {
 }
 function geometry(p:Project) {
   const {power_w:_,setpoint_c:__,...heater}=p.heater;
-  return {room:p.room,exterior_wall:p.exterior_wall,window:p.window,heater,
-    furniture:[...p.furniture].sort((a,b)=>a.x-b.x||a.y-b.y||a.z-b.z)};
+  return {room:p.room,exterior_walls:[...exteriorOf(p)].sort(),
+    openings:openingsOf(p).map(o=>({type:o.type,wall:o.wall,offset:o.offset,width:o.width,height:o.height,sill:o.sill})).sort((a,b)=>a.wall.localeCompare(b.wall)||a.offset-b.offset||a.sill-b.sill),heater,
+    furniture:p.furniture.map(({kind:_,name:__,...box})=>box).sort((a,b)=>a.x-b.x||a.y-b.y||a.z-b.z)};
 }
 export type Prediction = ReturnType<typeof predict>;
 export function predict(p:Project,table:Table) {

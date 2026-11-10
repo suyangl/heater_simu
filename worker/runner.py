@@ -124,6 +124,7 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False):
         execute(['decomposePar'])
     (path/'case.foam').touch()
     power = project.thermal()['effective_power_w']
+    loss_patches = project.loss_patches(json.loads((path/'case_meta.json').read_text()).get('patches'))
     history = []
     end = 0
     def block(length, samples):
@@ -145,8 +146,8 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False):
             nonlocal power
             power = q
             start, mean = block(length, samples)
-            _, flux = wall_heat_flux(path, {'heater', project.exterior_wall, 'window'}, (start, end))
-            loss = -sum(value for patch, value in flux.items() if patch != 'heater')
+            _, flux = wall_heat_flux(path, {'heater', *loss_patches}, (start, end))
+            loss = -sum(flux[patch] for patch in loss_patches)
             point = {'end_iteration': end, 'average_start': start, 'power_w': power,
                      'room_mean_c': mean, 'phase': phase, 'heat_loss_w': loss,
                      'energy_balance_error': abs(loss-power)/max(abs(power), 1e-9)}
@@ -215,11 +216,14 @@ def postprocess(path, elapsed):
     if not mask.any():
         raise ValueError('重采样无有效空气点')
     thermal = project.thermal()
-    flux_time, flux = wall_heat_flux(path, {'heater', project.exterior_wall, 'window'},
+    groups = project.loss_groups(meta.get('patches'))
+    loss_patches = {patch for patches in groups.values() for patch in patches}
+    flux_time, flux = wall_heat_flux(path, {'heater', *loss_patches},
                                     (meta['average_start'], meta['iterations']))
     if not np.isclose(flux_time, max(reader.time_values)):
         raise ValueError('wallHeatFlux output does not match the final temperature field')
-    losses = {patch: -value for patch, value in flux.items() if patch != 'heater'}
+    losses = {patch: -flux[patch] for patch in loss_patches}
+    grouped_losses = {name: sum(losses[p] for p in patches) for name, patches in groups.items()}
     loss = sum(losses.values())
     heater_flux = flux['heater']
     air_rho = np.asarray(mesh.cell_data['p'])/(8314.462618/28.96*(cell_t+273.15))
@@ -245,7 +249,7 @@ def postprocess(path, elapsed):
                       'thermostat_mode': meta.get('thermostat_mode', 'interactive'),
                       'thermostat_history': meta['thermostat_history'],
                       'modelling_note': 'M0 excludes radiation; CFD thermostat controls convective heating only.',
-                      'heat_loss_w': loss, 'heat_loss_split_w': losses,
+                      'heat_loss_w': loss, 'heat_loss_split_w': losses, 'heat_loss_groups_w': grouped_losses,
                       'heater_heat_flux_w': heater_flux, 'wall_heat_flux_time': flux_time,
                       'energy_balance_error': abs(loss-effective)/max(abs(effective), 1e-9),
                       'source_power_w': effective, 'average_start': meta['average_start'],

@@ -2,6 +2,17 @@
 
 个人本地使用，无账户。浏览器表单 → FastAPI/SQLite → OpenFOAM v2406 → PyVista → React/R3F 温度切片。估算结果，不构成 DPE 或能源审计。
 
+## 多外墙、门窗与家具
+
+- 最多 15 个家具长方体；床/桌/椅/柜/沙发/书架/自定义提供初始尺寸，可改尺寸、位置及名称。类型和名称不参与物理计算，所有家具仍为绝热实体；悬停显示名称。
+- `exterior_walls: ["N", "E"]` 可设置转角房；未选墙面为已供暖邻室（绝热），地板/天花板仍绝热。当前换气模型要求至少一面外墙且外墙不透明总面积非零；ACH 换气损失按此总面积分摊。
+- `openings` 最多 24 项：`{type: "window"|"door", wall, offset, width, height, sill, u_value?}`。窗只能在外墙；门的 sill 必须为 0。外门默认 U=1.8 W/(m²·K)，与 DPE 无关，可在 (0, 7] 编辑；这是关闭的保温门假设，不模拟开门气流。内门绝热但保留独立 patch。窗按 DPE 的窗 U 值。所有外边界沿用 Rsi 修正。
+- 门窗须在墙内，同墙门窗不能重叠，家具/暖器不能穿墙、互相重叠或遮挡门窗；422 会在页面显示具体原因。过多不同边界坐标导致最小分块数超过 150k 时会明确拒绝，而非无限尝试降分辨率。
+- 青色=窗、金色=外门、紫色=内门；精算 KPI 按外墙/窗/外门汇总 wallHeatFlux 散热（并保留逐 patch 数据）。
+- 省略新字段仍使用原 `exterior_wall` + `window` 输入。原生成器的 default 和全部 70 个 DoE 项的完整文件 SHA256 fixture（含 project.json）保护逐字节兼容。新字段显式提供后优先于旧字段。S1 按标准化门窗/外墙/家具几何匹配，标签不影响匹配，新增门窗/墙或不匹配家具会要求精算。
+- 训练容器是不可变旧镜像，不重建/重启它；其现有数据、表和正在执行的批次不变。未来重建训练器仍受原 physics-source fingerprint 审计保护，不可绕过该检查来混用数据版本。
+- 本 VM 15 个非对齐、不同高度箱体的实测：137448 cells，生成 1.05 s，blockMesh 12.37 s，checkMesh `Mesh OK.`，自适应网格间距 0.1021 m。网格仍受 150k 总 cell 上限保护；这不是网格独立性/精度验证。
+
 ## Windows 10 启动
 
 1. 安装兼容当前 Windows 10 版本的 Docker Desktop，启用 BIOS 虚拟化、WSL2 与 Docker 的 Linux containers / WSL2 backend。先启动 Docker Desktop，等待引擎就绪。
