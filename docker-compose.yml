@@ -24,6 +24,19 @@ services:
       OPENFOAM_NPROCS: "${OPENFOAM_NPROCS:-2}"
     cpus: 2
     mem_limit: 3g
+  trainer:
+    profiles: [train]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    entrypoint: ["/bin/bash", "/app/trainer/entrypoint.sh"]
+    command: []
+    environment:
+      OMPI_MCA_hwloc_base_binding_policy: none
+    volumes:
+      - heater_data:/data
+    cpus: "${TRAIN_CPUS:-2}"
+    mem_limit: "${TRAIN_MEMORY:-3g}"
 volumes:
   heater_data:
     name: heater_data

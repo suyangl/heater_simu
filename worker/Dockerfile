@@ -7,4 +7,5 @@ WORKDIR /app
 COPY api/app app
 COPY worker/runner.py runner.py
 COPY worker/visualization.py visualization.py
+COPY trainer trainer
 ENTRYPOINT ["/bin/bash", "-c", "source /usr/lib/openfoam/openfoam2406/etc/bashrc && exec python /app/runner.py"]

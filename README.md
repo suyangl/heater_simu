@@ -52,6 +52,26 @@ docker compose logs worker
 
 API：`GET /api/health`（含 worker 心跳）、`GET /api/example`、`POST /api/simulate`、`GET /api/jobs/{id}`（状态/日志尾）、`GET /api/jobs/{id}/result`。
 
+## M1 · 数据集 v1（本步骤不构建 S1 表或改前端）
+
+`trainer/doe-v1.json` 版本化定义 4 个固定家具/窗户的房间模板 × DPE A/C/E/G × 4 个暖器位置，共 **64 个训练案例**；固定随机种子另取 B/D/F 各 2 个组合，共 **6 个 holdout**。仅 M0 对流暖器、无辐射，室外 5°C、设定 19°C。额定功率**不是采样维度**：2500 W 只是沿用 M0 输入上限的统一求解安全上限；达到上限却不能维持设定的案例拒收，不能把截断功率当作所需功率。S1 的额定功率比较与温差缩放留给下一步骤。
+
+```sh
+# 8 GB 机器默认 2 CPU / 3 GB 容器、一次一个案例；后台运行，退出终端不影响
+docker compose --profile train up -d --build trainer
+# 同一命令可恢复：跳过已有且有效的 accepted 结果，每个案例累计最多两次尝试
+docker compose logs -f trainer
+docker compose exec -T trainer python -m trainer.dataset --status
+# trainer 已退出时也可查询
+docker compose --profile train run --rm --no-deps trainer --status
+```
+
+在更大机器上可显式增加容器配额，例如 Linux/WSL：`TRAIN_CPUS=6 TRAIN_MEMORY=12g docker compose --profile train up -d --build trainer`。自动并行度取容器 CPU/2 和内存（预留 1 GB、每案例预算 3 GB）的较小值，至少 1；训练容器关闭 MPI 默认 CPU 绑定，避免不同案例争抢相同两个核。每案例始终复用 worker 的两进程求解、恒温器、最终平均与后处理，不修改物理公式，不使用在线任务队列。可用 `docker compose --profile train run --rm --no-deps trainer --workers 1` 指定更低并行度。不要同时运行两个 trainer：数据集文件锁防止同目录重复计算。
+
+数据在命名卷的 `/data/datasets/v1/`：`manifest.json` 保存完整设计、输入和物理源码 SHA256（定义/物理变更需新目录）；`batch.log` 为追加式 JSONL 日志，`status.json` 为最近完成事件的汇总；`--status` 实时读取逐案例元数据。`cases/<id>/metadata.json` 含 split、模板/位置、输入、解析 UA/功率、CFD 所需功率、均温/极值、能量误差、耗时与状态。`result.json` 保留原有平均网格及可视化字段。**只使用 status=accepted 的数据训练**：能量误差 >10%、均温偏离 19°C >0.5°C、功率不足或异常密度均拒收。失败/拒收也重试一次并保留每次元数据、错误及日志；中断的运行计作一次尝试，重试从新网格开始，绝不混用半截平均场。已成功案例删除大体积 OpenFOAM 工作目录，失败的最后一次工作目录保留排错。耗尽重试后不会在恢复时无限重跑。
+
+测试：`docker compose run --rm --no-deps -v "$PWD:/review:ro" -w /review -e PYTHONPATH=/review/api:/review api python -m pytest -q -p no:cacheprovider api/tests trainer`（只读源码挂载不写 pytest 缓存）。
+
 ### ParaView 风格平均场
 
 结果视图使用石板灰背景、温度着色边界、速度着色流线与半透明暖羽流等温面，配有白色虚线包围框、XYZ 方向器和带细刻度的温度/风速色标。墙面保持透明，可分别切换墙面、表面着色、流线、等温面和温度切片。旧结果缺少新字段时仍可显示几何与原有温度切片；不可用图层会禁用。
