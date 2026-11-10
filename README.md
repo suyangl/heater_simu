@@ -138,3 +138,13 @@ trainer 调用与 settled 算法、阈值、DoE 均未改变；正在运行的 t
 表面按 patch 简化、等温面限制约 4000 个三角形，流线最多 180 条、每条最多 96 点；整体 JSON 限制 3 MB。静止或等温场可没有流线/等温面。流线为平均场中的空间积分线，不代表瞬态粒子轨迹。
 
 目录：`api/app` 模型、网格/字典生成、队列与路由；`worker` OpenFOAM 运行与重采样；`frontend` 中文 3D 编辑器；`scripts/e2e.sh` 端到端验收。设计依据见 [PRD](docs/PRD.md)。
+
+### Seasonal electricity estimate (M2 part 1)
+
+Below the temperature results, open **Electricity cost / 电费**. Add, name and compare Base, HP/HC, Tempo or custom 24×7 profiles. Enter every energy rate and the monthly subscription yourself (including an explicit 0 for a free subscription); missing prices leave costs unavailable without disabling temperature or energy results. HC boundaries use whole hours, may cross midnight and allow up to two periods. Custom rates have an explicit user-entered bulk-fill action. Profiles, active selection and climate/schedule assumptions persist in browser localStorage (`heatsimu.billing.v1`); there is currently no project JSON export/import UI.
+
+The client-only one-node RC model uses displayed CFD heat loss first, otherwise displayed S1 heat loss, divided by the project's design temperature difference; without a valid result it uses the existing analytic envelope UA. No endpoint, price fetch or weather fetch is used. Effective capacities are **80 / 165 / 260 kJ/(m² floor·K)** for light / medium / heavy inertia, with an editable override. The exact hourly RC solution limits heater power to its rating; comfort counts hour ends reaching comfort minus 0.5°C. This is not a transient CFD field or a validated utility-bill forecast.
+
+Editable Paris-like outdoor assumptions for Oct–Apr are **12.5, 8, 5.5, 4.9, 5.6, 8.8, 11.5°C**, with a **±4°C** daily cycle (minimum 06:00, maximum 15:00). The reference season is **2021-10-01 through 2022-04-30**, with UTC weekdays and no DST. Comfort follows the current project by default; eco is **16°C**. Weekday comfort hours are **07–09 and 17–23**; weekends **08–23**.
+
+Tempo defaults to requested **147 blue / 43 white / 22 red** season days, not an official calendar. Red uses the coldest Nov–Mar weekdays, white the next coldest days, and blue the remainder; the panel reports actual counts and any clamping/blue-count mismatch. Monthly € includes the whole contract subscription, not a room allocation. The kVA warning considers the heater alone and explicitly ignores other appliances. The typical-day curve averages all season days and colours each hour by its most frequent tariff period. Comparing profiles reuses the same hourly consumption.
