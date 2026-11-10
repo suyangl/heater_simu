@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.case import AVERAGE_START, ITERATIONS, cfd_coefficient, generate, source_boxes
 from app.main import app
 from app.models import Box, Project, U_VALUES
+from app.queue import connect
 
 
 @pytest.mark.parametrize('wall', ['N', 'S', 'E', 'W'])
@@ -61,6 +62,24 @@ def test_api_empty_source_zone(tmp_path, monkeypatch):
     response = TestClient(app).post('/api/simulate', json=p.model_dump())
     assert response.status_code == 422
     assert '空气单元' in response.json()['detail']
+
+
+def test_rejected_case_leaves_no_directory_or_job(tmp_path, monkeypatch):
+    monkeypatch.setattr('app.main.DATA', tmp_path)
+    monkeypatch.setattr('app.queue.DATA', tmp_path)
+    existing = tmp_path/'existing'
+    existing.mkdir()
+    with connect() as db:
+        db.execute('INSERT INTO jobs VALUES (?, ?, ?, ?, ?)', ('existing', 'done', 1, None, 0))
+    project = Project(furniture=[Box(x=1.3, y=3.3, z=.15, l=.8, w=.1, h=.5),
+                                 Box(x=1.3, y=3.4, z=.65, l=.8, w=.1, h=.1)])
+    for _ in range(2):
+        response = TestClient(app).post('/api/simulate', json=project.model_dump())
+        assert response.status_code == 422
+        assert '空气单元' in response.json()['detail']
+        assert [path for path in tmp_path.iterdir() if path.is_dir()] == [existing]
+        with connect() as db:
+            assert [tuple(row) for row in db.execute('SELECT id, status FROM jobs')] == [('existing', 'done')]
 
 
 def test_overlap_rejected():

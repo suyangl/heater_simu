@@ -1,4 +1,5 @@
 import json
+import shutil
 import time
 import uuid
 
@@ -32,6 +33,8 @@ def simulate(project: Project):
     try:
         meta = generate(project, path)
     except ValueError as exc:
+        if path.exists():
+            shutil.rmtree(path)
         raise HTTPException(422, str(exc)) from exc
     (path/'mesh.json').write_text(json.dumps(meta))
     with connect() as db:
