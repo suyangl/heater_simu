@@ -26,7 +26,7 @@ export function probePose(settings:ProbeSettings,p:Pick<Project,'room'|'furnitur
     .sort((a,b)=>(b.z+b.h)-(a.z+a.h))[0];
   const support=box?box.z+box.h:0,bounds=box??{x:0,y:0,l:p.room.length,w:p.room.width};
   const axis=bounds.l>=bounds.w?'x':'y';
-  const length=Math.min(1.7,(axis==='x'?bounds.l:bounds.w)-.14),width=Math.min(.65,(axis==='x'?bounds.w:bounds.l)-.04);
+  const length=Math.min(1.7,(axis==='x'?bounds.l:bounds.w)*.9),width=Math.min(.65,(axis==='x'?bounds.w:bounds.l)*.9);
   let yaw=axis==='x'?0:Math.PI/2;
   if(settings.posture==='lying'){
     const footprint=length*1.8/1.7;

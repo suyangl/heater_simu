@@ -74,8 +74,12 @@ describe('probe posture and preferences',()=>{
     expect(probePose({...settings,x:2,y:1.5},{...p,furniture:[...p.furniture,{x:1,y:1,z:0,l:2,w:1,h:.9}]}).support).toBe(.9);
     const small=probePose({posture:'lying',x:1.2,y:1.2},{...p,furniture:[{x:1,y:1,z:0,l:.5,w:.4,h:.5}]});
     expect(small.length).toBeLessThan(.5);
-    expect(small.length).toBeCloseTo(.5-.14);
+    expect(small.length).toBeCloseTo(.5*.9);
     expect(small.width).toBeLessThan(.4);
+    const tiny=probePose({posture:'lying',x:1.01,y:1.01},{...p,furniture:[{x:1,y:1,z:0,l:.02,w:.02,h:.5}]});
+    expect(tiny.length).toBeGreaterThan(0);
+    expect(tiny.length*1.8/1.7).toBeLessThan(.02);
+    expect(tiny.width).toBeGreaterThan(0);
   });
   it('sits on the nearest box edge facing outward, sampling its actual head and extended ankles',()=>{
     const settings={posture:'sitting' as const,x:2,y:1.4},pose=probePose(settings,p);
