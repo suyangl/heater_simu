@@ -107,6 +107,22 @@ class PostprocessTest(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             solve_thermostat(self.path, 2, budget=0)
 
+    def test_capacity_flag_uses_final_averaged_temperature(self):
+        (self.path/'system').mkdir()
+        for final_mean, insufficient in [(18.49, True), (18.5, False), (19, False), (19.5, False)]:
+            with self.subTest(final_mean=final_mean):
+                with patch('runner.run'), patch('runner.averaged_room_mean', side_effect=[5, 16, final_mean]):
+                    solve_thermostat(self.path, 1)
+                meta = json.loads((self.path/'case_meta.json').read_text())
+                self.assertEqual(meta['insufficient_power'], insufficient)
+                self.assertEqual(meta['cfd_heater_power_w'], 1500)
+
+    def test_rated_power_final_overheating_is_not_accepted_as_insufficient(self):
+        (self.path/'system').mkdir()
+        with patch('runner.run'), patch('runner.averaged_room_mean', side_effect=[5, 16, 19.51]):
+            with self.assertRaisesRegex(RuntimeError, 'Final thermostat averaging drifted'):
+                solve_thermostat(self.path, 1)
+
     def test_no_heating_demand(self):
         (self.path/'system').mkdir()
         (self.path/'project.json').write_text(Project(outdoor_temp=25).model_dump_json())

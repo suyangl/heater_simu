@@ -104,6 +104,7 @@ def solve_thermostat(path, nprocs, budget=1200):
     else:
         raise RuntimeError('CFD thermostat did not settle within eight control blocks')
     average_start, final_mean = block(600, 600)
+    insufficient = power >= project.heater.power_w*(1-1e-9) and final_mean < project.heater.setpoint_c-.5
     if project.heater.setpoint_c > project.outdoor_temp and not insufficient and abs(final_mean-project.heater.setpoint_c) > .5:
         raise RuntimeError(f'Final thermostat averaging drifted from setpoint: {final_mean:.3f} C')
     meta = json.loads((path/'case_meta.json').read_text())
