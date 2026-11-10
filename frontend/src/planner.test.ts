@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {defaultSchedule,newProfile,restoreSettings,evaluateTariff} from './billing';
 import {analyticBreakdown,analyticUA,UNMODIFIED} from './envelope';
 import {Project,Table} from './s1';
-import {applyMeasures,buildPlanner,combinedPlan,measuresFor,restorePlanner,simulateApplied} from './planner';
+import {applyMeasures,buildPlanner,combinedPlan,evaluatePlanner,measuresFor,restorePlanner,simulateApplied} from './planner';
 function fixture(){
   const project:Project={room:{length:4,width:3.5,height:2.5},exterior_wall:'N',window:{offset:1.2,width:1.2,height:1.35,sill:.9},dpe:'C',outdoor_temp:5,
     heater:{power_w:2000,setpoint_c:20,wall:'N',offset:1.3,z:.15,length:.8,depth:.1,height:.5},furniture:[]};
@@ -19,6 +19,19 @@ function fixture(){
   return {project,settings,table,calibratedUA:40,analytic:analyticBreakdown(project,table)};
 }
 describe('saving planner scenarios',()=>{
+  it('restores a failing combination without losing measures or the ability to deselect and clear',()=>{
+    const input=fixture();input.project.outdoor_temp=19;
+    const prefs=restorePlanner(JSON.stringify({...restorePlanner(null),selected:['setpoint-1','position-opposite_wall','stale-measure']}));
+    const result=evaluatePlanner(input,prefs);
+    expect(result.planError).toBe('planner.combinationUnavailable');
+    expect(result.combined).toBeNull();
+    expect(result.data.candidates.length).toBeGreaterThan(0);
+    expect(result.selected.map(m=>m.id).sort()).toEqual(['position-opposite_wall','setpoint-1']);
+    const deselected=evaluatePlanner(input,{...prefs,selected:['setpoint-1']});
+    expect(deselected.planError).toBeNull();expect(deselected.combined).not.toBeNull();
+    const cleared=evaluatePlanner(input,{...prefs,selected:[]});
+    expect(cleared.planError).toBeNull();expect(cleared.combined!.kwh).toBe(0);
+  });
   it('computes a plausible steady −1°C saving rather than a fixed percentage',()=>{
     const input=fixture(),prefs=restorePlanner(null),result=buildPlanner(input,prefs);
     const c=result.candidates.find(c=>c.measure.id==='setpoint-1')!;
