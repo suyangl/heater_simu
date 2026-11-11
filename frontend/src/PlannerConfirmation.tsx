@@ -2,6 +2,7 @@ import React from 'react';
 import {Assumptions,Measure,PlannerInput} from './planner';
 import {BillingSettings} from './billing';
 import {Language,translate} from './i18n';
+import {formatNumber} from './numberFormat';
 
 type Totals={kwh:number;euros:number|null};
 type Season={consumption:{kwh:number};bill:{total:number|null}};
@@ -28,8 +29,7 @@ export function refreshConfirmation(current:Confirmation|null,inputKey:string,ba
 }
 export function PlannerConfirmation({confirmation,language}:{confirmation:Confirmation;language:Language}) {
   const t=(key:string,params?:Record<string,string>)=>translate(key,language,params);
-  const fmt=(value:number|null,digits:number)=>value===null||!Number.isFinite(value)?'—':
-    new Intl.NumberFormat(language==='zh'?'zh-CN':'en-GB',{minimumFractionDigits:digits,maximumFractionDigits:digits}).format(value);
+  const fmt=formatNumber;
   return <div className="planner-applied" role="status">
     <strong>{t('planner.appliedDetail',{measures:confirmation.titles[language].join(language==='zh'?'、':', ')})}</strong>
     <p>{t('planner.appliedTotals',{beforeKwh:fmt(confirmation.before.kwh,1),afterKwh:fmt(confirmation.after.kwh,1),

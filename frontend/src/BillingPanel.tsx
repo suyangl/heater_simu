@@ -6,15 +6,16 @@ import {PlannerPanel} from './PlannerPanel';
 import {removeRetrofit} from './PlannerConfirmation';
 import {CityClimate} from './CityClimate';
 import {fillCityClimate} from './cityClimate';
+import {NumberInput} from './NumberInput';
+import {formatNumber} from './numberFormat';
 import {useLanguage} from './Language';
 import './billing.css';
 
 const COLOURS:Colour[]=['blue','white','red'];
 const PERIOD_COLOUR:Record<TariffPeriod,string>={base:'#087f75',hp:'#98540b',hc:'#225ca8',custom:'#7550a0',
   blue_hp:'#17458b',blue_hc:'#5a87b8',white_hp:'#63676a',white_hc:'#9ba5ad',red_hp:'#af243b',red_hc:'#df7181'};
-const priceValue=(value:string):Price=>value.trim()===''?null:Number(value);
 function PriceInput({label,value,onChange}:{label:string;value:Price;onChange:(v:Price)=>void}) {
-  return <label>{label}<input type="number" min="0" step="0.001" value={value??''} onChange={e=>onChange(priceValue(e.target.value))}/></label>;
+  return <label>{label}<NumberInput optional min={0} step=".001" value={value} onValueChange={onChange}/></label>;
 }
 export function BillingPanel({project,table,result,source,onProjectChange}:{project:Project;table:Table|null;onProjectChange:(p:Project)=>void;
   result:{kpi:{heat_loss_w:number;not_settled?:boolean}}|null;source:'CFD'|'S1'|'analytic'}) {
@@ -44,8 +45,7 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
   const comparison=useMemo(()=>simulated.data?compareTariffs(simulated.data,settings.profiles,project.heater.power_w):[],
     [simulated.data,settings.profiles,project.heater.power_w]);
   const bill=comparison.find(r=>r.id===settings.active);
-  const fmt=(v:number|null|undefined,digits=1)=>v===null||v===undefined||!Number.isFinite(v)?'—':
-    new Intl.NumberFormat(language==='zh'?'zh-CN':'en-GB',{maximumFractionDigits:digits,minimumFractionDigits:digits}).format(v);
+  const fmt=formatNumber;
   const monthName=(m:number)=>t('billing.month',{month:m});
   const periodName=(p:TariffPeriod)=>t('billing.period.'+p);
   const tempoChanged=bill&&COLOURS.some(c=>bill.split[c].days!==profile.days[c]);
@@ -75,7 +75,7 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
         {profile.kind==='hphc'&&(['hp','hc'] as const).map(period=><PriceInput key={period} label={t('billing.price',{period:periodName(period)})} value={profile[period]} onChange={value=>update({[period]:value})}/>)}
         {profile.kind==='tempo'&&COLOURS.map(colour=><div key={colour} className="billing-colour"><b>{t('billing.colour.'+colour)}</b>
           {(['hp','hc'] as const).map(period=><PriceInput key={period} label={t('billing.price',{period:periodName(period)})} value={profile.tempo[colour][period]} onChange={value=>update({tempo:{...profile.tempo,[colour]:{...profile.tempo[colour],[period]:value}}})}/>)}
-          <label>{t('billing.requestedDays')}<input type="number" min="0" step="1" value={profile.days[colour]} onChange={e=>update({days:{...profile.days,[colour]:Number(e.target.value)}})}/></label></div>)}
+          <label>{t('billing.requestedDays')}<NumberInput min={0} step="1" value={profile.days[colour]} onValueChange={value=>update({days:{...profile.days,[colour]:value}})}/></label></div>)}
       </div>
       {(profile.kind==='hphc'||profile.kind==='tempo')&&<div className="billing-periods"><p>{t('billing.hcPeriods')}</p>
         {profile.periods.map((period,i)=><div className="billing-actions" key={i}>
@@ -86,7 +86,7 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
       {profile.kind==='custom'&&<details><summary>{t('billing.customGrid')}</summary>
         <div className="billing-actions"><PriceInput label={t('billing.fillRate')} value={fillPrice} onChange={setFillPrice}/><button disabled={fillPrice===null||fillPrice<0} onClick={()=>update({grid:Array.from({length:7},()=>Array<Price>(24).fill(fillPrice))})}>{t('billing.fillGrid')}</button></div>
         <div className="billing-scroll"><table className="billing-grid"><thead><tr><th>{t('billing.dayHour')}</th>{Array.from({length:24},(_,h)=><th key={h}>{h}:00</th>)}</tr></thead>
-          <tbody>{profile.grid.map((row,d)=><tr key={d}><th>{t('billing.day.'+d)}</th>{row.map((value,h)=><td key={h}><input aria-label={t('billing.gridCell',{day:t('billing.day.'+d),hour:h})} type="number" min="0" step=".001" value={value??''} onChange={e=>update({grid:profile.grid.map((r,day)=>day===d?r.map((v,hour)=>hour===h?priceValue(e.target.value):v):r)})}/></td>)}</tr>)}</tbody></table></div>
+          <tbody>{profile.grid.map((row,d)=><tr key={d}><th>{t('billing.day.'+d)}</th>{row.map((value,h)=><td key={h}><NumberInput optional aria-label={t('billing.gridCell',{day:t('billing.day.'+d),hour:h})} min={0} step=".001" value={value} onValueChange={value=>update({grid:profile.grid.map((r,day)=>day===d?r.map((v,hour)=>hour===h?value:v):r)})}/></td>)}</tr>)}</tbody></table></div>
       </details>}
       <p className="hint">{t('billing.manualPrices')}</p>
     </div>
@@ -129,13 +129,13 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
       <CityClimate climate={settings.climate} onApply={(data,city)=>setSettings(s=>({...s,climate:fillCityClimate(s.climate,data,city)}))}/>
       <div className="billing-month-inputs">{settings.climate.months.map((m,i)=><div key={m.month}>
         <label className="billing-checkbox"><input type="checkbox" checked={m.enabled} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,months:s.climate.months.map((v,j)=>j===i?{...v,enabled:e.target.checked}:v)}}))}/>{monthName(m.month)}</label>
-        <label>{t('billing.outdoorMean')}<input type="number" step=".1" value={m.mean} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,source:s.climate.source?{...s.climate.source,edited:true}:undefined,months:s.climate.months.map((v,j)=>j===i?{...v,mean:Number(e.target.value)}:v)}}))}/></label>
+        <label>{t('billing.outdoorMean')}<NumberInput step=".1" value={m.mean} onValueChange={value=>setSettings(s=>({...s,climate:{...s.climate,source:s.climate.source?{...s.climate.source,edited:true}:undefined,months:s.climate.months.map((v,j)=>j===i?{...v,mean:value}:v)}}))}/></label>
       </div>)}</div>
-      <div className="billing-fields"><label>{t('billing.amplitude')}<input type="number" min="0" step=".1" value={settings.climate.amplitude} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,amplitude:Number(e.target.value)}}))}/></label>
+      <div className="billing-fields"><label>{t('billing.amplitude')}<NumberInput min={0} step=".1" value={settings.climate.amplitude} onValueChange={value=>setSettings(s=>({...s,climate:{...s.climate,amplitude:value}}))}/></label>
         <label>{t('billing.inertia')}<select value={settings.inertia} onChange={e=>setSettings(s=>({...s,inertia:e.target.value as Inertia,capacityPerArea:null}))}>{(['light','medium','heavy'] as const).map(v=><option key={v} value={v}>{t('billing.inertia.'+v)}</option>)}</select></label>
-        <label>{t('billing.capacity')}<input type="number" min="1" step="1000" value={settings.capacityPerArea??CAPACITY[settings.inertia]} onChange={e=>setSettings(s=>({...s,capacityPerArea:priceValue(e.target.value)}))}/></label>
-        <label>{t('billing.comfort')}<input type="number" step=".5" value={comfort} onChange={e=>setSettings(s=>({...s,followProject:false,schedule:{...s.schedule,comfort:Number(e.target.value)}}))}/></label>
-        <label>{t('billing.eco')}<input type="number" step=".5" value={settings.schedule.eco} onChange={e=>setSettings(s=>({...s,schedule:{...s.schedule,eco:Number(e.target.value)}}))}/></label>
+        <label>{t('billing.capacity')}<NumberInput optional min={1} step="1000" placeholder={String(CAPACITY[settings.inertia])} value={settings.capacityPerArea} onValueChange={value=>setSettings(s=>({...s,capacityPerArea:value}))}/></label>
+        <label>{t('billing.comfort')}<NumberInput step=".5" value={comfort} onValueChange={value=>setSettings(s=>({...s,followProject:false,schedule:{...s.schedule,comfort:value}}))}/></label>
+        <label>{t('billing.eco')}<NumberInput step=".5" value={settings.schedule.eco} onValueChange={value=>setSettings(s=>({...s,schedule:{...s.schedule,eco:value}}))}/></label>
       </div>
       <label className="billing-checkbox"><input type="checkbox" checked={settings.followProject} onChange={e=>setSettings(s=>({...s,followProject:e.target.checked}))}/>{t('billing.followProject')}</label>
       <p>{t('billing.scheduleNote')}</p>
