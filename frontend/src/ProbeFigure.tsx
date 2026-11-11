@@ -38,9 +38,9 @@ export function ProbePanel({p,settings,reading,onChange}:{p:Project;settings:Pro
     <p>{t('probe.rule')}</p>
   </div>;
 }
-export function ProbeFigure({p,settings,reading,onChange,onDragging}:{p:Project;settings:ProbeSettings;reading:ProbeReading;
-  onChange:(s:ProbeSettings)=>void;onDragging:(v:boolean)=>void}) {
-  const {t}=useLanguage(),{camera,gl,controls}=useThree();
+export function ProbeFigure({p,settings,reading,onChange,onDragging,t}:{p:Project;settings:ProbeSettings;reading:ProbeReading;
+  onChange:(s:ProbeSettings)=>void;onDragging:(v:boolean)=>void;t:ReturnType<typeof useLanguage>['t']}) {
+  const {camera,gl,controls}=useThree();
   const orbit=controls as unknown as {enabled:boolean}|null;
   const drag=useRef<{dx:number;dy:number}|null>(null);
   const pose=probePose(settings,p),{x,y}=pose,lying=settings.posture==='lying',sitting=settings.posture==='sitting';

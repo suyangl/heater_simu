@@ -8,7 +8,8 @@ export type Profile = {
   tempo:Record<Colour,{hp:Price;hc:Price}>;days:Record<Colour,number>;
   grid:Price[][];
 };
-export type Climate = {months:{month:number;mean:number;enabled:boolean}[];amplitude:number};
+export type Climate = {months:{month:number;mean:number;enabled:boolean}[];amplitude:number;
+  source?:{city:string;startYear:number;endYear:number;edited?:boolean}};
 export type Schedule = {comfort:number;eco:number;weekdays:boolean[];weekends:boolean[]};
 export type Inertia = 'light'|'medium'|'heavy';
 // Effective fabric + contents capacity, J/(m² floor·K), not air capacity alone.
@@ -169,6 +170,9 @@ export function restoreSettings(raw:string|null,comfort:number):BillingSettings 
         !s.climate.months.every(m=>SEASON_MONTHS.includes(m.month)&&finite(m.mean)&&typeof m.enabled==='boolean')||
         !finite(s.schedule?.comfort)||!finite(s.schedule.eco)||
         ![s.schedule.weekdays,s.schedule.weekends].every(row=>Array.isArray(row)&&row.length===24&&row.every(v=>typeof v==='boolean')))return fallback;
+    const source=s.climate.source;
+    if(source&&(typeof source.city!=='string'||!Number.isInteger(source.startYear)||!Number.isInteger(source.endYear)||
+        source.endYear-source.startYear!==9||(source.edited!==undefined&&typeof source.edited!=='boolean')))delete s.climate.source;
     return s;
   }catch{return fallback;}
 }

@@ -70,6 +70,7 @@ function Slice({result,height,vertical}:{result:Result;height:number;vertical:bo
   return <mesh geometry={geometry}><meshBasicMaterial vertexColors side={THREE.DoubleSide} transparent opacity={.65} depthWrite={false} toneMapped={false}/></mesh>;
 }
 function Scene({p,result,height,vertical,layers,probe,probeReading,person,onProbeChange}:{p:Project;result:Result|null;height:number;vertical:boolean;layers:Layers;probe:ProbeSettings;probeReading:ProbeReading;person:boolean;onProbeChange:(s:ProbeSettings)=>void}) {
+  const {t}=useLanguage();
   const r=p.room;
   const [probeDragging,setProbeDragging]=useState(false);
   const temperature=result?.temperature_range??[result?.T.min??0,result?.T.max??1];
@@ -99,7 +100,7 @@ function Scene({p,result,height,vertical,layers,probe,probeReading,person,onProb
       {result?.isosurface&&layers.iso&&<FieldSurface surface={result.isosurface} range={speed} speed opacity={.55}/>}
       {result?.streamlines&&layers.streamlines&&<FlowLines lines={result.streamlines} range={speed}/>}
       {result&&layers.slice&&<Slice result={result} height={height} vertical={vertical}/>}
-      {result&&person&&<ProbeFigure p={p} settings={probe} reading={probeReading} onChange={onProbeChange} onDragging={setProbeDragging}/>}
+      {result&&person&&<ProbeFigure p={p} settings={probe} reading={probeReading} onChange={onProbeChange} onDragging={setProbeDragging} t={t}/>}
       <RoomOutline size={[r.length,r.width,r.height]}/>
     </group>
     <OrbitControls enabled={!probeDragging} makeDefault target={[0,r.height/2,0]} minDistance={3} maxDistance={18}/>
