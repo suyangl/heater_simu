@@ -7,6 +7,7 @@ import type {Project} from './s1';
 import {clampPosition,lyingHeadOffset,probePose,ProbeReading,ProbeSettings,Sample} from './probe';
 import {LyingFigure,SittingFigure} from './ProbePostures';
 import {useLanguage} from './Language';
+import {NumberInput} from './NumberInput';
 import './probe.css';
 
 function temperature(sample:Sample) {
@@ -31,8 +32,8 @@ export function ProbePanel({p,settings,reading,onChange}:{p:Project;settings:Pro
       <label>{t('probe.posture')}<select value={settings.posture} onChange={e=>onChange({...settings,posture:e.target.value as ProbeSettings['posture']})}>
         {(['standing','sitting','lying'] as const).map(v=><option key={v} value={v}>{t(`probe.${v}`)}</option>)}
       </select></label>
-      {(['x','y'] as const).map((axis,i)=><label key={axis}>{axis.toUpperCase()} (m)<input type="number" min="0" max={i?p.room.width:p.room.length} step=".05"
-        value={Number(position[axis].toFixed(2))} onChange={e=>onChange({...settings,...clampPosition({...position,[axis]:Number(e.target.value)},p.room)})}/></label>)}
+      {(['x','y'] as const).map((axis,i)=><label key={axis}>{axis.toUpperCase()} (m)<NumberInput min={0} max={i?p.room.width:p.room.length} step=".05"
+        value={Number(position[axis].toFixed(2))} onValueChange={value=>onChange({...settings,...clampPosition({...position,[axis]:value},p.room)})}/></label>)}
     </div>
     <ProbeReadout reading={reading} lying={settings.posture==='lying'} t={t}/>
     <p>{t('probe.rule')}</p>

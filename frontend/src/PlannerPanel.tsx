@@ -2,6 +2,8 @@ import {useEffect,useMemo,useState} from 'react';
 import {useLanguage} from './Language';
 import {Assumptions,Measure,PLANNER_STORAGE,PlannerInput,applyMeasures,evaluatePlanner,restorePlanner} from './planner';
 import {Confirmation,PlannerConfirmation,activeRetrofits,appliedConfirmation,measureTitle,plannerInputKey,refreshConfirmation} from './PlannerConfirmation';
+import {NumberInput} from './NumberInput';
+import {formatNumber} from './numberFormat';
 import './planner.css';
 export function PlannerPanel({input,onApply,onRemoveRetrofit}:{input:PlannerInput;onApply:(state:ReturnType<typeof applyMeasures>)=>void;onRemoveRetrofit:(key:'windowFactor'|'achFactor')=>void}) {
   const {t,language}=useLanguage();
@@ -13,8 +15,7 @@ export function PlannerPanel({input,onApply,onRemoveRetrofit}:{input:PlannerInpu
       return {...evaluatePlanner(input,preferences),error:null};
     }catch(error){return {data:null,selected:[],combined:null,planError:null,error:error instanceof Error?error.message:'planner.unavailable'};}
   },[input,preferences]);
-  const fmt=(value:number|null|undefined,digits=1)=>value===null||value===undefined||!Number.isFinite(value)?'—':
-    new Intl.NumberFormat(language==='zh'?'zh-CN':'en-GB',{minimumFractionDigits:digits,maximumFractionDigits:digits}).format(value);
+  const fmt=formatNumber;
   const title=(m:Measure)=>measureTitle(m,input,language);
   const inputKey=plannerInputKey(input),baseline=evaluated.data?.baseline;
   useEffect(()=>{setApplied(current=>refreshConfirmation(current,inputKey,baseline));},[inputKey,baseline]);
@@ -29,7 +30,7 @@ export function PlannerPanel({input,onApply,onRemoveRetrofit}:{input:PlannerInpu
     <div className="row"><h2>{t('planner.title')}</h2><span className="billing-badge">{t('planner.local')}</span></div>
     <p>{t('planner.note')}</p>
     <div className="billing-fields">{(['emission','curtains','film','draught'] as const).map(key=><label key={key}>{t('planner.assumption.'+key)}
-      <input type="number" min={key==='emission'?0:.01} max={key==='emission'?undefined:1} step=".001" value={preferences.assumptions[key]} onChange={e=>setPreferences(p=>({...p,assumptions:{...p.assumptions,[key]:Number(e.target.value)} as Assumptions}))}/></label>)}</div>
+      <NumberInput min={key==='emission'?0:.01} max={key==='emission'?undefined:1} step=".001" value={preferences.assumptions[key]} onValueChange={value=>setPreferences(p=>({...p,assumptions:{...p.assumptions,[key]:value} as Assumptions}))}/></label>)}</div>
     <p className="hint">{t('planner.factorNote')} <a href="https://base-empreinte.ademe.fr/" target="_blank" rel="noreferrer">{t('planner.ademe')}</a></p>
     {storageError&&<p className="billing-warning">{t('billing.storageError')}</p>}
     {!!retrofits.length&&<div className="planner-tip active-retrofits"><strong>{t('planner.activeRetrofits')}</strong>{retrofits.map(m=><p key={m.key}>
@@ -65,7 +66,7 @@ export function PlannerPanel({input,onApply,onRemoveRetrofit}:{input:PlannerInpu
           {(c.measure.kind==='setpoint'||c.measure.kind==='shorten'||c.measure.kind==='eco')&&<small className="planner-caution">{t('planner.lowerTarget')}</small>}
           {c.comfortPp!==null&&c.comfortPp<0&&<small className="planner-caution">{t('planner.comfortWarning')}</small>}</td>
         <td>{fmt(c.euros,2)} €</td><td>{fmt(c.kwh)} kWh</td><td>{fmt(c.co2)} kg</td><td>{fmt(c.comfortPp)} pp</td>
-        <td><input type="number" min="0" step="1" value={preferences.costs[c.measure.id]??''} aria-label={t('planner.investmentFor',{measure:title(c.measure)})} onChange={e=>setPreferences(p=>({...p,costs:{...p.costs,[c.measure.id]:e.target.value===''?null:Math.max(0,Number(e.target.value))}}))}/></td>
+        <td><NumberInput optional min={0} step="1" value={preferences.costs[c.measure.id]??null} aria-label={t('planner.investmentFor',{measure:title(c.measure)})} onValueChange={value=>setPreferences(p=>({...p,costs:{...p.costs,[c.measure.id]:value}}))}/></td>
         <td>{fmt(c.payback)} {t('planner.seasons')}</td><td><button onClick={()=>apply(c.apply(),[c.measure],c.scenario)}>{t('planner.apply')}</button></td>
       </tr>)}</tbody></table></div>
       {evaluated.data.positionTip&&<p className="planner-tip">{t('planner.positionTip')}</p>}
