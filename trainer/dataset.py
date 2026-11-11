@@ -44,6 +44,16 @@ def training_policy():
     return {'mode': 'settled', 'budget_s': budget}
 
 
+def processor_count():
+    try:
+        count = int(os.environ.get('OPENFOAM_NPROCS', '2'))
+    except ValueError:
+        raise ValueError('OPENFOAM_NPROCS must be 1 or 2') from None
+    if count not in (1, 2):
+        raise ValueError('OPENFOAM_NPROCS must be 1 or 2')
+    return count
+
+
 def rejection(result):
     try:
         k = result['kpi']
@@ -74,11 +84,12 @@ def complete(directory, record):
 
 
 def execute_case(work, project):
+    nprocs = processor_count()
     pipeline = importlib.import_module('runner')
     generate(project, work)
     pipeline.run(['blockMesh'], work, 120)
     pipeline.run(['topoSet'], work, 120)
-    elapsed = pipeline.solve_thermostat(work, 2, budget=training_policy()['budget_s'], settled=True)
+    elapsed = pipeline.solve_thermostat(work, nprocs, budget=training_policy()['budget_s'], settled=True)
     pipeline.postprocess(work, elapsed)
     return read_json(work/'result.json')
 
@@ -139,6 +150,7 @@ def run_case(root, case, execute=execute_case):
 
 
 def resource_capacity():
+    nprocs = processor_count()
     cpus = len(os.sched_getaffinity(0))
     cpu_limit = Path('/sys/fs/cgroup/cpu.max')
     if cpu_limit.exists():
@@ -150,7 +162,7 @@ def resource_capacity():
     memory_limit = Path('/sys/fs/cgroup/memory.max')
     if memory_limit.exists() and memory_limit.read_text().strip() != 'max':
         available = min(available, int(memory_limit.read_text()))
-    workers = max(1, min(cpus//2, int((available-1024**3)//(3*1024**3))))
+    workers = max(1, min(cpus//nprocs, int((available-1024**3)//(3*1024**3))))
     return {'cpus': cpus, 'memory_gib': round(available/1024**3, 2), 'capacity': workers}
 
 
