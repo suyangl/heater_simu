@@ -4,6 +4,8 @@ import {Project,Table} from './s1';
 import {analyticBreakdown,analyticUA} from './envelope';
 import {PlannerPanel} from './PlannerPanel';
 import {removeRetrofit} from './PlannerConfirmation';
+import {CityClimate} from './CityClimate';
+import {fillCityClimate} from './cityClimate';
 import {useLanguage} from './Language';
 import './billing.css';
 
@@ -123,10 +125,11 @@ export function BillingPanel({project,table,result,source,onProjectChange}:{proj
         <tbody>{comparison.map((r,i)=><tr key={r.id} className={r.cheapest?'billing-cheapest':''}><td><button onClick={()=>setSettings(s=>({...s,active:r.id}))}>{nameOf(settings.profiles[i])}</button></td><td>{t('billing.kind.'+settings.profiles[i].kind)}</td><td>{fmt(r.total,2)} € {r.cheapest&&<b>{t('billing.cheapest')}</b>}</td></tr>)}</tbody></table></div>
     </>}
     <details className="billing-assumptions"><summary>{t('billing.climateSchedule')}</summary>
-      <h3>{t('billing.climate')}</h3><p>{t('billing.climateNote')}</p>
+      <h3>{t('billing.climate')}</h3>{!settings.climate.source&&<p>{t('billing.climateNote')}</p>}
+      <CityClimate climate={settings.climate} onApply={(data,city)=>setSettings(s=>({...s,climate:fillCityClimate(s.climate,data,city)}))}/>
       <div className="billing-month-inputs">{settings.climate.months.map((m,i)=><div key={m.month}>
         <label className="billing-checkbox"><input type="checkbox" checked={m.enabled} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,months:s.climate.months.map((v,j)=>j===i?{...v,enabled:e.target.checked}:v)}}))}/>{monthName(m.month)}</label>
-        <label>{t('billing.outdoorMean')}<input type="number" step=".1" value={m.mean} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,months:s.climate.months.map((v,j)=>j===i?{...v,mean:Number(e.target.value)}:v)}}))}/></label>
+        <label>{t('billing.outdoorMean')}<input type="number" step=".1" value={m.mean} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,source:s.climate.source?{...s.climate.source,edited:true}:undefined,months:s.climate.months.map((v,j)=>j===i?{...v,mean:Number(e.target.value)}:v)}}))}/></label>
       </div>)}</div>
       <div className="billing-fields"><label>{t('billing.amplitude')}<input type="number" min="0" step=".1" value={settings.climate.amplitude} onChange={e=>setSettings(s=>({...s,climate:{...s.climate,amplitude:Number(e.target.value)}}))}/></label>
         <label>{t('billing.inertia')}<select value={settings.inertia} onChange={e=>setSettings(s=>({...s,inertia:e.target.value as Inertia,capacityPerArea:null}))}>{(['light','medium','heavy'] as const).map(v=><option key={v} value={v}>{t('billing.inertia.'+v)}</option>)}</select></label>
