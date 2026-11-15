@@ -278,3 +278,17 @@ def test_reset_reruns_accepted_results_from_old_physics(tmp_path):
     prepare(tmp_path, definition, plan, reset_failed=True)
     reset = json.loads((case_dir/'metadata.json').read_text())
     assert reset['status'] == 'pending' and not (case_dir/'result.json').exists()
+
+
+def test_skipped_templates_counted_separately_but_keep_accepted(monkeypatch, tmp_path):
+    plan = cases()
+    living = [case for case in plan if case['template'] == 'living']
+    done = run_case(tmp_path, living[0], lambda work, project: valid_result())
+    assert done['status'] == 'accepted'
+    monkeypatch.setenv('TRAIN_SKIP_TEMPLATES', ' living , ')
+    state = summary(tmp_path, plan)
+    assert state['accepted'] == 1
+    assert state['skipped'] == len(living)-1
+    assert state['pending'] == len(plan)-len(living)
+    monkeypatch.delenv('TRAIN_SKIP_TEMPLATES')
+    assert summary(tmp_path, plan)['skipped'] == 0

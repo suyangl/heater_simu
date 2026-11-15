@@ -54,6 +54,10 @@ def processor_count():
     return count
 
 
+def skipped_templates():
+    return {name.strip() for name in os.environ.get('TRAIN_SKIP_TEMPLATES', '').split(',') if name.strip()}
+
+
 def rejection(result):
     try:
         k = result['kpi']
@@ -167,11 +171,14 @@ def resource_capacity():
 
 
 def summary(root, plan):
-    counts = dict.fromkeys(('accepted', 'rejected', 'failed', 'running', 'pending'), 0)
+    counts = dict.fromkeys(('accepted', 'rejected', 'failed', 'running', 'pending', 'skipped'), 0)
     seconds = []
+    skip = skipped_templates()
     for case in plan:
         record = read_json(root/'cases'/case['id']/'metadata.json')
         state = record.get('status', 'pending')
+        if case['template'] in skip and state != 'accepted':
+            state = 'skipped'
         counts[state] += 1
         if state == 'accepted':
             seconds.append(record['wall_time_s'])
@@ -254,7 +261,8 @@ def main():
             parser.error(f'workers must be 1..{resources["capacity"]} for this container')
         emit(args.root, {'event': 'batch_started', 'root': str(args.root), 'workers': workers, **resources})
         with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context('spawn')) as pool:
-            futures = [pool.submit(run_case, args.root, case) for case in plan]
+            skip = skipped_templates()
+            futures = [pool.submit(run_case, args.root, case) for case in plan if case['template'] not in skip]
             for future in as_completed(futures):
                 future.result()
                 state = summary(args.root, plan)
