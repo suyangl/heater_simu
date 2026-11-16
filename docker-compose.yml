@@ -35,6 +35,8 @@ services:
     environment:
       OMPI_MCA_hwloc_base_binding_policy: none
       TRAIN_SOLVE_BUDGET: "${TRAIN_SOLVE_BUDGET:-3600}"
+      TRAIN_SKIP_TEMPLATES: "${TRAIN_SKIP_TEMPLATES:-}"
+      OPENFOAM_NPROCS: "${OPENFOAM_NPROCS:-2}"
     volumes:
       - heater_data:/data
     cpus: "${TRAIN_CPUS:-2}"
