@@ -85,6 +85,12 @@ docker compose --profile train run --rm --no-deps trainer --status
 
 测试：`docker compose run --rm --no-deps -v "$PWD:/review:ro" -w /review -e PYTHONPATH=/review/api:/review api python -m pytest -q -p no:cacheprovider api/tests trainer`（只读源码挂载不写 pytest 缓存）。
 
+### Random-room DoE
+
+`trainer/doe-random-v1.json` selects seeded random generation: 120 train and 20 holdout cases, IDs `rand-train-0000` / `rand-holdout-0000`, with `template=position=random`. The definition records sampling ranges and probabilities. Rooms have one or two adjacent exterior walls, windows, optional interior doors, and 0–5 furniture boxes; bounded rejection sampling validates every project with the API model. Each record retains its full project and sampled-feature summary. Setpoint stays 19°C and rated power 2500 W; DPE A–G and outdoor temperature 0–10°C vary.
+
+For an authorized future run, select a **new root** and pass `--doe /app/trainer/doe-random-v1.json --root /data/datasets/random-v1` to the trainer entrypoint. Pass the same `--doe` for resume and `--status`; omitting it preserves the original template DoE. `TRAIN_SKIP_TEMPLATES=random` skips non-accepted random cases. Physics, acceptance, retry and postprocessing are unchanged. S1 and bundled static-example exporters exclude non-template cases; exporting a random-only root produces no examples or S1 training nodes.
+
 ### 数据集恒温器与失败恢复
 
 训练通过同一个 worker 的 opt-in `settled` 控制模式运行；交互任务仍使用原有控制方式及 **1200 s** 默认预算。训练的 `TRAIN_SOLVE_BUDGET` 默认为 **3600 s/次**，可显式调整。不是放宽验收：均温仍须距设定 ≤0.5°C，能量误差须 **<10%**。训练先在固定 Q 下等待相邻平均窗口温度变化 ≤0.15°C 且能量误差 <5%，再更新功率，避免把仍在冷却/升温的状态误当成平衡响应。更新使用受限、0.7 阻尼的正斜率 secant；斜率无效时退回阻尼比例更新，单次变化限制 ±35%。空气 RC 时间常数 >3000 s 时使用较长的 2000/1500 次初始/后续稳定块，其他情况为 1500/1000 次；每块末 800 次测量。达到目标后固定功率再做完整 **2000 次最终平均**；若漂移或不平衡则继续稳定/控制，而不是在第一次穿过设定温度时提前终止。所有温度/热损失均来自同一平均窗口，物理 BC、源区及有限体积字典不变。
@@ -176,7 +182,7 @@ Both builds can display bundled, accepted OpenFOAM examples. The browser lazy-lo
 
 Non-exact inputs keep S1 air temperatures, probe, KPIs and approximate surface colours while overlaying the nearest case’s streamlines and isosurface, with an explicit bilingual case summary. These flow shapes/speeds are illustrative, not recomputed for edited inputs. S1 surface colours sample adjacent air with nearest-valid fallback, not physical wall temperatures. Templates/positions without examples show a short note and no flow layers. A local solver result always takes priority. Static mode initially enables the temperature slice; the normal build retains its default-off slice.
 
-Refresh the committed examples from a read-only accepted dataset with `python -m trainer.build_static_examples DATASET_ROOT frontend/public/cfd-examples`. The exporter never starts a solver or writes the dataset. It copies all accepted cases' real air fields and rendered geometry, omitting the unused speed grid and solver history. The current v1x snapshot has 55 cases and approximately 65.3 MB of JSON (30.6 MB gzip); each case remains below 1.22 MB, and only the index and the selected case are fetched, with cases cached in memory.
+Refresh the committed examples from a read-only accepted dataset with `python -m trainer.build_static_examples DATASET_ROOT frontend/public/cfd-examples`. The exporter never starts a solver or writes the dataset. It copies accepted template cases' real air fields and rendered geometry, omitting the unused speed grid and solver history. Random/non-template cases are excluded from both this exporter and S1. The current v1x snapshot has 55 cases and approximately 65.3 MB of JSON (30.6 MB gzip); each case remains below 1.22 MB, and only the index and the selected case are fetched, with cases cached in memory.
 
 The bundled v1x S1 snapshot contains 53 accepted training cases; two accepted holdouts are validation-only. Independent holdouts meet the targets (field RMSE 0.0173 °C, mean power error 2.80%), but leave-one-out training validation does **not** meet the power target (field RMSE 0.1488 °C, mean power error 17.66%). Removing boundary nodes during leave-one-out validation causes nearest-node extrapolation; bracketed training predictions average 8.88% power error, versus 25.18% for unbracketed predictions. These are coverage-dependent metrics, not an accuracy guarantee for arbitrary projects.
 

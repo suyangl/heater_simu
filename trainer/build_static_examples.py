@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 
+
 KPI = ('room_average_c', 'heat_loss_w', 'heat_loss_groups_w', 'energy_balance_error',
        'solve_wall_time_s', 'cell_count', 'rated_power_w', 'cfd_heater_power_w',
        'analytic_effective_power_w', 'thermostat_iterations', 'duty_cycle',
@@ -44,6 +45,8 @@ def build(root, output):
             continue
         metadata = json.loads(metadata_file.read_text())
         if metadata.get('status') != 'accepted':
+            continue
+        if metadata.get('template') == 'random':
             continue
         case_id = metadata['id']
         if not re.fullmatch(r'[A-Za-z0-9_-]+', case_id):

@@ -64,8 +64,12 @@ def accepted(root):
     manifest = read_json(root/'manifest.json')
     definition = manifest.get('definition', load_definition())
     plan = manifest.get('cases', cases(definition))
+    if definition.get('generator') == 'random-room-v1':
+        definition = load_definition()
     rows, availability = [], []
     for case in plan:
+        if case['template'] == 'random':
+            continue
         directory = root/'cases'/case['id']
         record = read_json(directory/'metadata.json')
         valid = complete(directory, record)
