@@ -66,10 +66,9 @@ def accepted(root):
     plan = manifest.get('cases', cases(definition))
     if definition.get('generator') == 'random-room-v1':
         definition = load_definition()
-    templates = {t['id'] for t in load_definition()['templates']}
     rows, availability = [], []
     for case in plan:
-        if case['template'] not in templates:
+        if case['template'] == 'random':
             continue
         directory = root/'cases'/case['id']
         record = read_json(directory/'metadata.json')
