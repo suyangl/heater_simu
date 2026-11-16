@@ -1,4 +1,6 @@
 export const en = {
+  "hybrid.reason": "Custom-room physics + learned estimate (low confidence), not CFD. A precise OpenFOAM result requires local Docker.",
+  "hybrid.physics": "Experimental hybrid estimate trained on convection-only CFD without radiation. Required power is not capped; an insufficient-power field represents the target, not an achievable temperature.",
   "climate.city": "City",
   "climate.search": "Search city",
   "climate.result": "Search results (France first)",
@@ -33,7 +35,7 @@ export const en = {
   "static.title": "Static demo · S1 + CFD examples",
   "static.notice": "Static demo — instant S1 estimates and bundled OpenFOAM examples; run Docker locally for new OpenFOAM simulations.",
   "static.readme": "Local Docker guide (README)",
-  "static.localRequired": "No S1 estimate for this room. OpenFOAM requires the local Docker version.",
+  "static.localRequired": "No browser estimate is available for this room. A precise OpenFOAM result requires local Docker.",
   "static.tableUnavailable": "The bundled S1 table is unavailable. Reload or check the static deployment.",
   "static.physics": "S1 is a convection-only estimate without radiation. An insufficient-power field is a target, not an achievable temperature. Use local Docker for OpenFOAM.",
   "static.validation": ". Partial training table; not a validated CFD result.",
@@ -148,6 +150,7 @@ export const en = {
   "billing.model": "UA {ua} W/K · {source} · effective capacity {capacity} kJ/(m²·K)",
   "billing.source.CFD": "displayed CFD heat loss",
   "billing.source.S1": "displayed S1 heat loss",
+  "billing.source.hybrid": "displayed hybrid estimated heat loss",
   "billing.source.analytic": "analytic envelope fallback",
   "billing.assumptions": "One-node model, hourly thermostat, no cooling or solar/internal gains. Each season starts at the comfort temperature, independent of eco and hourly patterns. Results are estimates, not bills. The full contract subscription is charged to this room for each selected month; other appliances are excluded.",
   "billing.designClimateNote": "The project's outdoor temperature is a CFD/S1 design condition used to calibrate UA. Seasonal energy uses the monthly climate below; changing only the design temperature leaves seasonal kWh unchanged when UA is unchanged.",
@@ -419,6 +422,8 @@ export const en = {
   "最多 {bound} 项": "At most {bound} items / characters"
 };
 export const zh:Record<keyof typeof en,string> = {
+  "hybrid.reason": "自定义房间的物理 + 学习修正预估（低置信度），并非 CFD。OpenFOAM 精确结果需要本机 Docker。",
+  "hybrid.physics": "实验性混合预估，基于不含辐射的对流 CFD 数据训练。所需功率不截断；功率不足时显示目标温度场，不代表实际可达到温度。",
   "climate.city": "城市",
   "climate.search": "搜索城市",
   "climate.result": "搜索结果（法国优先）",
@@ -453,7 +458,7 @@ export const zh:Record<keyof typeof en,string> = {
   "static.title": "静态演示 · S1 与 CFD 示例",
   "static.notice": "静态演示 — 提供 S1 即时预估与随包 OpenFOAM 示例；如需新的 OpenFOAM 精算，请在本机运行 Docker 版本。",
   "static.readme": "本机 Docker 使用说明（README）",
-  "static.localRequired": "此房间暂无 S1 预估；OpenFOAM 精算需要本机 Docker 版本。",
+  "static.localRequired": "此房间暂无浏览器预估；OpenFOAM 精确结果需要本机 Docker。",
   "static.tableUnavailable": "内置 S1 预估表不可用，请刷新或检查静态部署。",
   "static.physics": "S1 仅为无辐射对流预估；功率不足时显示的是目标温度场，不代表实际可达到温度。OpenFOAM 精算请使用本机 Docker 版本。",
   "static.validation": "。当前为部分训练表，非已验证的 CFD 结果。",
@@ -568,6 +573,7 @@ export const zh:Record<keyof typeof en,string> = {
   "billing.model": "UA {ua} W/K · {source} · 有效热容 {capacity} kJ/(m²·K)",
   "billing.source.CFD": "当前 CFD 散热校准",
   "billing.source.S1": "当前 S1 散热校准",
+  "billing.source.hybrid": "当前混合模型预估散热校准",
   "billing.source.analytic": "解析围护结构回退值",
   "billing.assumptions": "单节点模型、逐小时恒温控制，不含制冷、太阳或室内得热。每季初始室温统一取舒适设定，不随节能设定或小时模式改变。结果仅为预估，并非账单。每个选中月份的全额合同订阅费计入本房间；不含其他电器能耗。",
   "billing.designClimateNote": "房间室外温度是 CFD/S1 的设计工况，用于校准 UA。季节能耗使用下方月均气候；UA 不变时，只改设计室外温度不会改变季节 kWh。",

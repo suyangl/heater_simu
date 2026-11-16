@@ -18,6 +18,7 @@ import {NumberInput} from './NumberInput';
 import {deployment} from './deployment';
 import {chooseStaticTemplate,restoreStaticProject,staticProjectTemplate,STATIC_PROJECT_STORAGE} from './staticProject';
 import {deriveS1Surfaces} from './s1Surfaces';
+import {HybridModel} from './hybrid';
 import {CFDIndex,ExampleResult,chooseCFDExample,combineExample,createExampleLoader} from './cfdExamples';
 import './style.css';
 import './runStatus.css';
@@ -135,7 +136,9 @@ function App() {
   useEffect(()=>{setProbe(s=>({...s,...clampPosition(s,p.room)}));},[p.room.length,p.room.width]);
   const staticTemplate=useMemo(()=>deployment.staticMode&&table?chooseStaticTemplate(table):null,[table]);
   useEffect(()=>{if(deployment.staticMode&&staticReady){try{localStorage.setItem(STATIC_PROJECT_STORAGE,JSON.stringify({version:1,project:history.present}));}catch{}}},[history.present,staticReady]);
-  const prediction=useMemo(()=>table?predict(history.present,table,language):null,[history.present,table,language]);
+  const [hybrid,setHybrid]=useState<HybridModel|null>(null);
+  useEffect(()=>{void deployment.loadHybrid().then(setHybrid);},[]);
+  const prediction=useMemo(()=>table?predict(history.present,table,language,hybrid):null,[history.present,table,language,hybrid]);
   const s1Result=useMemo(()=>prediction?.field?{...prediction.field,surfaces:deriveS1Surfaces(history.present,prediction.field)}:null,[prediction,history.present]);
   const [examples,setExamples]=useState<CFDIndex|null>(null),[exampleError,setExampleError]=useState(false);
   const [loadedExample,setLoadedExample]=useState<{id:string;result:ExampleResult}|null>(null);
@@ -153,6 +156,7 @@ function App() {
   const committedResult:Result|null=cfdResult??combineExample(s1Result,exampleChoice,exampleData);
   const result:Result|null=draft?null:committedResult;
   const isPrediction=!draft&&!cfdResult&&!exactExample&&!!prediction?.field;
+  const isHybrid=isPrediction&&prediction?.field?.source==='hybrid';
   const exampleSummary=exampleChoice?t('examples.summary',{template:templateNames[exampleChoice.entry.template]??exampleChoice.entry.template,
     position:positionNames[exampleChoice.entry.position]??exampleChoice.entry.position,dpe:exampleChoice.entry.dpe,
     setpoint:exampleChoice.entry.setpoint_c,outdoor:exampleChoice.entry.outdoor_temp,power:exampleChoice.entry.project.heater.power_w}):'';
@@ -228,12 +232,12 @@ function App() {
       {result&&person&&<ProbePanel p={p} settings={probe} reading={probeReading} onChange={setProbe}/>}
       <div className="results">{!deployment.staticMode&&<><div className="row"><h3>{t("模拟状态")}<span className="status">{t(status)}</span></h3><small>{t("单任务 · 2 核限额")}</small></div><progress max={1} value={progress}/></>}{!!error&&<div className="error">{formatError(error,language)}</div>}
       {timing&&<p className="hint runtime">{progressText(timing,language)}</p>}{warning&&<div className="settlement-warning" role="alert">{t("未稳定 / not_settled：")}{translateWarning(warning,language)}</div>}
-      {!cfdResult&&<p className="prediction-status" data-inference-ms={prediction?.elapsed_ms.toFixed(3)}>{exactExample?t("examples.exact"):deployment.staticMode&&prediction&&!prediction.field?t("static.localRequired"):prediction?t("预估 · 置信度 {v0} · {v1} · {v2} ms",{v0:prediction.confidence,v1:prediction.reason,v2:prediction.elapsed_ms.toFixed(2)}):t(tableError)||t("载入预估表…")}{isPrediction&&<>{t(deployment.staticMode?"static.validation":"。尚未完成数据集验证，不替代精算。")}{t("s1.surfaceCaveat")}</>}{deployment.staticMode&&prediction&&!committedResult&&staticTemplate&&<> <button onClick={loadStaticTemplate}>{t("static.loadTemplate")}</button></>}</p>}
+      {!cfdResult&&<p className="prediction-status" data-inference-ms={prediction?.elapsed_ms.toFixed(3)}>{exactExample?t("examples.exact"):deployment.staticMode&&prediction&&!prediction.field?t("static.localRequired"):prediction?t("预估 · 置信度 {v0} · {v1} · {v2} ms",{v0:prediction.confidence,v1:prediction.reason,v2:prediction.elapsed_ms.toFixed(2)}):t(tableError)||t("载入预估表…")}{isPrediction&&<>{!isHybrid&&t(deployment.staticMode?"static.validation":"。尚未完成数据集验证，不替代精算。")}{t("s1.surfaceCaveat")}</>}{deployment.staticMode&&prediction&&!committedResult&&staticTemplate&&<> <button onClick={loadStaticTemplate}>{t("static.loadTemplate")}</button></>}</p>}
       {!cfdResult&&table&&matchPreset(history.present,table)&&!exactExample&&<p className="example-status" role="note">{exampleError?t("examples.failed"):examples&&!exampleChoice?t("examples.none"):exampleData?t(s1Result?"examples.overlay":"examples.noS1",{summary:exampleSummary}):exampleChoice?t("examples.loading"):''}</p>}
       {result?<><div className="kpis"><div><span>{t("房间平均")}</span><strong>{result.kpi.room_average_c.toFixed(1)}<small> °C</small></strong></div><div><span>{t("最低 / 最高")}</span><strong>{result.T.min.toFixed(1)} / {result.T.max.toFixed(1)}<small> °C</small></strong></div><div><span>{isPrediction?t("热平衡"):t("热平衡误差")}</span><strong>{isPrediction?t("未精算"):`${(result.kpi.energy_balance_error*100).toFixed(1)} %`}</strong></div><div><span>{isPrediction?t("浏览器推断"):t("求解耗时 / 网格")}</span><strong>{isPrediction?`${prediction?.elapsed_ms.toFixed(2)} ms`:`${result.kpi.solve_wall_time_s.toFixed(0)} s / ${(result.kpi.cell_count/1000).toFixed(0)}k`}</strong></div></div><div className="slice-controls"><label>{t("切片高度")}{' '}{height.toFixed(2)} m <input type="range" min="0.05" max={p.room.height-.05} step="0.05" disabled={!layers.slice} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label><label><input type="checkbox" disabled={!layers.slice} checked={vertical} onChange={e=>setVertical(e.target.checked)}/>{t("竖直切片（房间中线）")}</label></div></>:deployment.showSolverEmptyState&&<p className="empty">{t("无可用预估，请精算。精算需数分钟；不会自动提交。")}</p>}
-      {result&&<><div className="kpis"><div><span>{isPrediction?t("额定 / 预估所需功率"):t("额定 / CFD 恒温功率")}</span><strong>{result.kpi.rated_power_w.toFixed(0)} / {result.kpi.cfd_heater_power_w.toFixed(0)}<small> W</small></strong></div><div><span>{isPrediction?t("解析 UA 功率"):t("解析估计 / 调节次数")}</span><strong>{result.kpi.analytic_effective_power_w.toFixed(0)}<small> W{!isPrediction&&t(" / {v0} 次",{v0:result.kpi.thermostat_iterations})}</small></strong></div><div><span>{t("恒温占空比")}</span><strong>{(result.kpi.duty_cycle*100).toFixed(1)}<small> %</small></strong></div><div><span>{t("供暖能力")}</span><strong>{capacityText(result.kpi.insufficient_power,warning,language)}</strong></div></div><p className="hint">{isPrediction?t(deployment.staticMode?"static.physics":"S1 仅为无辐射对流模型预估。功率不足时显示的是目标温度场，不代表实际可达到温度；建议精算。"):t("M0 不含辐射；CFD 功率仅对应当前对流模型，解析估计用于 RC 初值。")}</p></>}
+      {result&&<><div className="kpis"><div><span>{isPrediction?t("额定 / 预估所需功率"):t("额定 / CFD 恒温功率")}</span><strong>{result.kpi.rated_power_w.toFixed(0)} / {result.kpi.cfd_heater_power_w.toFixed(0)}<small> W</small></strong></div><div><span>{isPrediction?t("解析 UA 功率"):t("解析估计 / 调节次数")}</span><strong>{result.kpi.analytic_effective_power_w.toFixed(0)}<small> W{!isPrediction&&t(" / {v0} 次",{v0:result.kpi.thermostat_iterations})}</small></strong></div><div><span>{t("恒温占空比")}</span><strong>{(result.kpi.duty_cycle*100).toFixed(1)}<small> %</small></strong></div><div><span>{t("供暖能力")}</span><strong>{capacityText(result.kpi.insufficient_power,warning,language)}</strong></div></div><p className="hint">{isHybrid?t('hybrid.physics'):isPrediction?t(deployment.staticMode?"static.physics":"S1 仅为无辐射对流模型预估。功率不足时显示的是目标温度场，不代表实际可达到温度；建议精算。"):t("M0 不含辐射；CFD 功率仅对应当前对流模型，解析估计用于 RC 初值。")}</p></>}
       {cfdResult?.kpi.heat_loss_groups_w&&<p className="hint">{t("散热分项：")}{Object.entries(cfdResult.kpi.heat_loss_groups_w).map(([group,w])=>t("{v0} {v1} W",{v0:t(({exterior_walls:'外墙',windows:'窗户',exterior_doors:'外门'} as Record<string,string>)[group]??group),v1:w.toFixed(1)})).join(' · ')}{t("（内门绝热）")}</p>}
       {log&&<details><summary>{t("求解日志")}</summary><pre>{log}</pre></details>}</div>
-      <BillingPanel project={history.present} table={table} result={committedResult} source={cfdResult||exactExample?'CFD':prediction?.field?'S1':'analytic'} onProjectChange={applyFromBilling}/></article></main></>;
+      <BillingPanel project={history.present} table={table} result={committedResult} source={cfdResult||exactExample?'CFD':isHybrid?'hybrid':prediction?.field?'S1':'analytic'} onProjectChange={applyFromBilling}/></article></main></>;
 }
 createRoot(document.getElementById('root')!).render(<LanguageProvider><App/></LanguageProvider>);

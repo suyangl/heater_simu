@@ -18,7 +18,7 @@ function PriceInput({label,value,onChange}:{label:string;value:Price;onChange:(v
   return <label>{label}<NumberInput optional min={0} step=".001" value={value} onValueChange={onChange}/></label>;
 }
 export function BillingPanel({project,table,result,source,onProjectChange}:{project:Project;table:Table|null;onProjectChange:(p:Project)=>void;
-  result:{kpi:{heat_loss_w:number;not_settled?:boolean}}|null;source:'CFD'|'S1'|'analytic'}) {
+  result:{kpi:{heat_loss_w:number;not_settled?:boolean}}|null;source:'CFD'|'S1'|'hybrid'|'analytic'}) {
   const {t,language}=useLanguage();
   const [settings,setSettings]=useState(()=>{
     try{return restoreSettings(localStorage.getItem(BILLING_STORAGE),project.heater.setpoint_c);}

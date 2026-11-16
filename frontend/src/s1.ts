@@ -1,4 +1,5 @@
 import {Language,translate} from './i18n';
+import {HybridModel,predictHybrid} from './hybrid';
 export type Box = { x:number; y:number; z:number; l:number; w:number; h:number;kind?:string;name?:string };
 export type Wall = 'N'|'S'|'E'|'W';
 export type Opening = {type:'window'|'door';wall:Wall;offset:number;width:number;height:number;sill:number;u_value?:number};
@@ -43,14 +44,18 @@ export function matchPreset(p:Project,table:Table) {
   }
   return match;
 }
-export function predict(p:Project,table:Table,language:Language='zh') {
+export function predict(p:Project,table:Table,language:Language='zh',hybrid:HybridModel|null=null) {
   const t=(key:string)=>translate(key,language);
   const started=performance.now();
   const unavailable=(reason:string)=>({confidence:t("低"),reason,field:null,elapsed_ms:performance.now()-started,extrapolated:false});
   const match=matchPreset(p,table);
-  if(!match)return unavailable(t("房间、家具、窗户或暖器位置不匹配模板；无可用预估，请精算"));
   const rise=p.heater.setpoint_c-p.outdoor_temp,analytic=ua(p,table);
   if(!(rise>0)||!Number.isFinite(analytic)||!(p.heater.power_w>0))return unavailable(t("仅支持有效的供热工况（设定温度高于室外）；请精算"));
+  if(!match){
+    const field=hybrid&&predictHybrid(p,hybrid);
+    return field?{confidence:t('低'),reason:t('hybrid.reason'),field,elapsed_ms:performance.now()-started,extrapolated:true}:
+      unavailable(t("房间、家具、窗户或暖器位置不匹配模板；无可用预估，请精算"));
+  }
   const group=table.cases.filter(r=>r.template===match!.template&&r.position===match!.position).sort((a,b)=>a.wall_u-b.wall_u);
   if(!group.length)return unavailable(t("此模板 / 暖器位置尚无 accepted 数据；无可用预估，请精算"));
   const u=table.axes.u_values[p.dpe][0],lower=group.filter(r=>r.wall_u<=u).at(-1)??group[0],upper=group.find(r=>r.wall_u>=u)??group.at(-1)!;
