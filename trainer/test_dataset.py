@@ -1,7 +1,11 @@
 import copy
 import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
+import trainer.dataset as dataset
 
 from app.case import generate
 from app.models import Project
@@ -199,6 +203,66 @@ def test_configurable_training_budget(monkeypatch):
     assert training_policy() == {'mode': 'settled', 'budget_s': 5400}
 
 
+@pytest.mark.parametrize('value,expected', [(None, 2), ('1', 1), ('2', 2)])
+def test_processor_count_and_solver_dispatch(monkeypatch, tmp_path, value, expected):
+    monkeypatch.delenv('OPENFOAM_NPROCS', raising=False)
+    if value is not None:
+        monkeypatch.setenv('OPENFOAM_NPROCS', value)
+    monkeypatch.setenv('TRAIN_SOLVE_BUDGET', '5400')
+    project = Project.model_validate(cases()[0]['project'])
+    result = valid_result()
+    pipeline = SimpleNamespace(run=Mock(), solve_thermostat=Mock(return_value=100),
+                               postprocess=Mock(side_effect=lambda work, elapsed: write_json(work/'result.json', result)))
+    monkeypatch.setattr(dataset.importlib, 'import_module', lambda name: pipeline)
+    generate_case = Mock()
+    monkeypatch.setattr(dataset, 'generate', generate_case)
+    assert dataset.processor_count() == expected
+    assert dataset.execute_case(tmp_path, project) == result
+    generate_case.assert_called_once_with(project, tmp_path)
+    pipeline.solve_thermostat.assert_called_once_with(tmp_path, expected, budget=5400, settled=True)
+    pipeline.postprocess.assert_called_once_with(tmp_path, 100)
+
+
+@pytest.mark.parametrize('value', ['', 'bad', '1.5', '0', '-1', '3', 'nan'])
+def test_invalid_processor_count_rejected_before_execution(monkeypatch, tmp_path, value):
+    monkeypatch.setenv('OPENFOAM_NPROCS', value)
+    generate_case = Mock()
+    monkeypatch.setattr(dataset, 'generate', generate_case)
+    for call in (dataset.processor_count, dataset.resource_capacity,
+                 lambda: dataset.execute_case(tmp_path, None)):
+        with pytest.raises(ValueError, match='OPENFOAM_NPROCS must be 1 or 2'):
+            call()
+    generate_case.assert_not_called()
+
+
+@pytest.mark.parametrize('value,memory_gib,expected', [(None, 32, 3), ('1', 32, 6), ('2', 32, 3), ('1', 10, 3)])
+def test_resource_capacity_accounts_for_processors_and_memory(monkeypatch, value, memory_gib, expected):
+    monkeypatch.delenv('OPENFOAM_NPROCS', raising=False)
+    if value is not None:
+        monkeypatch.setenv('OPENFOAM_NPROCS', value)
+    monkeypatch.setattr(dataset.os, 'sched_getaffinity', lambda pid: set(range(8)))
+    files = {'/sys/fs/cgroup/cpu.max': '600000 100000',
+             '/sys/fs/cgroup/memory.max': str(memory_gib*1024**3),
+             '/proc/meminfo': 'MemAvailable: 67108864 kB'}
+    exists, read_text = Path.exists, Path.read_text
+    monkeypatch.setattr(Path, 'exists', lambda path: str(path) in files or exists(path))
+    monkeypatch.setattr(Path, 'read_text', lambda path, *a, **kw: files[str(path)] if str(path) in files else read_text(path, *a, **kw))
+    resources = dataset.resource_capacity()
+    assert resources == {'cpus': 6, 'memory_gib': memory_gib, 'capacity': expected}
+
+
+def test_serial_setting_preserves_physics_policy_and_acceptance(monkeypatch, tmp_path):
+    definition, plan = load_definition(), cases()[:1]
+    monkeypatch.delenv('OPENFOAM_NPROCS', raising=False)
+    prepare(tmp_path, definition, plan)
+    before = json.loads((tmp_path/'manifest.json').read_text())
+    monkeypatch.setenv('OPENFOAM_NPROCS', '1')
+    prepare(tmp_path, definition, plan)
+    after = json.loads((tmp_path/'manifest.json').read_text())
+    assert after == before
+    assert rejection(valid_result()) is None
+
+
 def test_reset_reruns_accepted_results_from_old_physics(tmp_path):
     definition = load_definition()
     plan = cases()[:1]
@@ -214,3 +278,17 @@ def test_reset_reruns_accepted_results_from_old_physics(tmp_path):
     prepare(tmp_path, definition, plan, reset_failed=True)
     reset = json.loads((case_dir/'metadata.json').read_text())
     assert reset['status'] == 'pending' and not (case_dir/'result.json').exists()
+
+
+def test_skipped_templates_counted_separately_but_keep_accepted(monkeypatch, tmp_path):
+    plan = cases()
+    living = [case for case in plan if case['template'] == 'living']
+    done = run_case(tmp_path, living[0], lambda work, project: valid_result())
+    assert done['status'] == 'accepted'
+    monkeypatch.setenv('TRAIN_SKIP_TEMPLATES', ' living , ')
+    state = summary(tmp_path, plan)
+    assert state['accepted'] == 1
+    assert state['skipped'] == len(living)-1
+    assert state['pending'] == len(plan)-len(living)
+    monkeypatch.delenv('TRAIN_SKIP_TEMPLATES')
+    assert summary(tmp_path, plan)['skipped'] == 0
