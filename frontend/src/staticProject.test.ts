@@ -2,6 +2,8 @@ import {describe,it,expect} from 'vitest';
 import tableJson from '../public/surrogate/s1-v1.json';
 import {chooseStaticTemplate,restoreStaticProject,staticProjectTemplate} from './staticProject';
 import {predict,Table} from './s1';
+import hybrid from '../public/surrogate/hybrid-v1.json';
+import {HybridModel} from './hybrid';
 
 const table=tableJson as unknown as Table;
 describe('static visitor project',()=>{
@@ -19,6 +21,7 @@ describe('static visitor project',()=>{
     expect(restored).toEqual(custom);
     expect(staticProjectTemplate(restored!,table).template).toBe('');
     expect(predict(restored!,table).field).toBeNull();
+    expect(predict(restored!,table,'en',hybrid as unknown as HybridModel).field?.source).toBe('hybrid');
     expect(predict(chooseStaticTemplate(table)!.project,table).field).not.toBeNull();
   });
   it('handles empty tables and absent, corrupt, unsupported or incomplete saved data',()=>{

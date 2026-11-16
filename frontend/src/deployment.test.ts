@@ -1,7 +1,22 @@
 import {describe,it,expect,vi} from 'vitest';
 import {createDeployment} from './deployment';
+import hybrid from '../public/surrogate/hybrid-v1.json';
 
 describe('static deployment gating',()=>{
+  it('loads the optional hybrid artifact from bundled assets in both modes without API calls',async()=>{
+    for(const staticMode of [true,false]){
+      const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify(hybrid)));
+      expect(await createDeployment(staticMode,fetcher).loadHybrid()).toEqual(hybrid);
+      expect(fetcher.mock.calls.map(c=>c[0])).toEqual(['/surrogate/hybrid-v1.json']);
+    }
+  });
+  it('keeps legacy prediction available when hybrid loading fails or is malformed',async()=>{
+    for(const fetcher of [vi.fn().mockRejectedValue(new Error('offline')),vi.fn().mockResolvedValue(new Response('{}')),
+      vi.fn().mockResolvedValue(new Response('invalid json'))]){
+      expect(await createDeployment(true,fetcher).loadHybrid()).toBeNull();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  });
   it('allows bundled example flow layers without enabling solver or API access',()=>{
     const mode=createDeployment(true);
     for(const layer of ['streamlines','iso','speedLegend'])expect(mode.showLayer(layer,true)).toBe(true);
