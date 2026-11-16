@@ -26,9 +26,14 @@ describe('bundled CFD selection',()=>{
     expect(chooseCFDExample(opposite.project,table,index)?.entry.position).toBe('opposite_wall');
   });
   it('handles no-case templates, non-template geometry and empty indexes',()=>{
-    expect(chooseCFDExample(table.presets.living.under_window,table,index)).toBeNull();
+    expect(chooseCFDExample(table.presets.living.interior_corner,table,index)).toBeNull();
     expect(chooseCFDExample({...p,room:{...p.room,length:9}},table,index)).toBeNull();
     expect(chooseCFDExample(p,table,{version:1,cases:[]})).toBeNull();
+  });
+  it('includes accepted living and study examples without filling missing living positions',()=>{
+    for(const template of ['living','study'])
+      expect(chooseCFDExample(table.presets[template].under_window,table,index)?.entry.template).toBe(template);
+    expect(index.cases.some(e=>e.template==='living'&&e.position==='interior_corner')).toBe(false);
   });
   it('displays exact CFD unchanged, but overlays only flow data onto non-exact S1',()=>{
     const choice={entry,exact:true};
