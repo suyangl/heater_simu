@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import re
 
+from trainer.doe import load_definition
+
 
 KPI = ('room_average_c', 'heat_loss_w', 'heat_loss_groups_w', 'energy_balance_error',
        'solve_wall_time_s', 'cell_count', 'rated_power_w', 'cfd_heater_power_w',
@@ -38,12 +40,15 @@ def build(root, output):
         raise ValueError('Output must be outside the read-only dataset')
     output.mkdir(parents=True, exist_ok=True)
     index = {'version': 1, 'cases': []}
+    templates = {t['id'] for t in load_definition()['templates']}
     for directory in sorted((root/'cases').glob('*')):
         metadata_file = directory/'metadata.json'
         if not metadata_file.is_file():
             continue
         metadata = json.loads(metadata_file.read_text())
         if metadata.get('status') != 'accepted':
+            continue
+        if 'template' in metadata and metadata['template'] not in templates:
             continue
         case_id = metadata['id']
         if not re.fullmatch(r'[A-Za-z0-9_-]+', case_id):

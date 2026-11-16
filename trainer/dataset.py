@@ -233,12 +233,13 @@ def prepare(root, definition, plan, reset_failed=False):
 def main():
     parser = argparse.ArgumentParser(description='Resumable M0 CFD dataset; no surrogate training')
     parser.add_argument('--root', type=Path, default=DEFAULT_ROOT)
+    parser.add_argument('--doe', type=Path, help='DoE definition JSON (default: doe-v1.json)')
     parser.add_argument('--workers', type=int)
     parser.add_argument('--status', action='store_true')
     parser.add_argument('--reset-failed', action='store_true',
                         help='Archive/reset non-accepted cases and adopt the updated controller policy, then exit')
     args = parser.parse_args()
-    definition = load_definition()
+    definition = load_definition(args.doe) if args.doe else load_definition()
     plan = cases(definition)
     if args.status:
         print(json.dumps(summary(args.root, plan), indent=2), flush=True)

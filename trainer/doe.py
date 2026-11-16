@@ -4,12 +4,13 @@ import random
 from pathlib import Path
 
 from app.models import Project
+from trainer.random_doe import random_cases
 
 DEFINITION = Path(__file__).with_name('doe-v1.json')
 
 
-def load_definition():
-    return json.loads(DEFINITION.read_text())
+def load_definition(path=DEFINITION):
+    return json.loads(Path(path).read_text())
 
 
 def project_for(template, dpe, position, definition):
@@ -33,6 +34,8 @@ def project_for(template, dpe, position, definition):
 
 def cases(definition=None):
     definition = definition or load_definition()
+    if definition.get('generator') == 'random-room-v1':
+        return random_cases(definition)
     templates, positions = definition['templates'], definition['positions']
     rows = [(t, d, p, 'train') for t, d, p in itertools.product(templates, definition['training_dpe'], positions)]
     rng = random.Random(definition['holdout_seed'])
