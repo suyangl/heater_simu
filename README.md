@@ -116,6 +116,14 @@ Current artifact: **5,312 bytes**, trained on **53 v1x template cases**, with **
 
 These scores measure template-data generalization, **not accuracy on arbitrary DIY geometry**. Random-room CFD data has not yet been included in this artifact. No solver or physics settings are changed by hybrid training.
 
+### Smaller random-room plans and queue ordering
+
+`--doe /app/trainer/doe-random-v2.json` selects 50 train + 10 holdout cases with the original seed and sampling ranges. Train IDs 0000–0049 are identical to the original plan. The generator uses one RNG stream across both splits, so the smaller training count changes the holdout projects; do not reuse old holdouts just because IDs match.
+
+`--queue-order holdout-first` submits holdouts before training cases. Optional `--priority-cases ID [ID ...]` puts selected cases first in the listed order, ahead of holdouts. Neither option changes project content, the stored case plan, physics hashes or solver policy; defaults retain the original order. Accepted cases are still skipped by the existing resume check.
+
+Changing a definition/count is not supported in place, even with `--reset-failed`. Use a new root and copy only accepted cases with identical projects and compatible physics/policy, verifying file hashes and retaining an audit. Partial solver work cannot be resumed by the existing trainer: retain it in the original root and restart those case IDs in the new root.
+
 ### Optional CFD-calibrated thermostat startup
 
 Set `THERMOSTAT_CALIBRATED_START=1` in the trainer or worker container to initialize the shared **settled** controller at `clamp(exp(log-k ridge) × UA × max(0, Tset−Tout), positive, rated power)`. Without it, the existing analytic start is unchanged; non-heating cases still start at zero. Both trainer and interactive settled runs share this implementation. Only the first power choice changes: physics, boundary conditions, settle gates, secant updates and acceptance are unchanged.

@@ -1,0 +1,15 @@
+{
+  "version": "random-v2",
+  "generator": "random-room-v1",
+  "seed": 719,
+  "counts": {"train": 50, "holdout": 10},
+  "max_attempts": 200,
+  "room": {"length": [2.5, 5.0], "width": [2.5, 4.5], "height": [2.4, 2.8]},
+  "corner_probability": 0.3,
+  "door_probability": 0.5,
+  "window": {"width": [0.6, 1.8], "height": [0.8, 1.5], "sill": [0.4, 1.0]},
+  "furniture_count": [0, 5],
+  "outdoor_temp": [0, 10],
+  "setpoint_c": 19,
+  "solver_power_ceiling_w": 2500
+}

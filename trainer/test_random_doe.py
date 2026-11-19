@@ -1,4 +1,5 @@
 import copy
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -13,6 +14,39 @@ from trainer.doe import cases, load_definition
 
 
 DEFINITION = Path(__file__).with_name('doe-random-v1.json')
+
+
+def test_small_plan_preserves_training_prefix_but_resamples_holdouts():
+    old = cases(load_definition(DEFINITION))
+    small = cases(load_definition(DEFINITION.with_name('doe-random-v2.json')))
+    assert Counter(c['split'] for c in small) == {'train': 50, 'holdout': 10}
+    assert json.dumps(small[:50]).encode() == json.dumps(old[:50]).encode()
+    assert all(new['project'] != previous['project'] for new, previous in zip(small[50:], old[120:]))
+    assert len({c['id'] for c in small}) == 60
+    for case in small:
+        Project.model_validate(case['project'])
+
+
+def test_queue_order_is_stable_and_does_not_change_plan():
+    plan = cases(load_definition(DEFINITION.with_name('doe-random-v2.json')))
+    before = copy.deepcopy(plan)
+    assert dataset.ordered_cases(plan) == plan
+    ordered = dataset.ordered_cases(plan, 'holdout-first', [plan[3]['id'], plan[0]['id']])
+    assert ordered[:2] == [plan[3], plan[0]]
+    assert ordered[2:12] == plan[50:]
+    assert ordered[12:] == [case for case in plan[:50] if case not in ordered[:2]]
+    assert plan == before
+    assert sorted(c['id'] for c in ordered) == sorted(c['id'] for c in plan)
+    assert dataset.ordered_cases([]) == []
+    assert dataset.ordered_cases([], 'holdout-first') == []
+
+
+@pytest.mark.parametrize('order,priority', [('unknown', []), ('plan', ['missing']),
+                                           ('plan', ['rand-train-0000']*2)])
+def test_invalid_queue_order_or_priority(order, priority):
+    plan = cases(load_definition(DEFINITION.with_name('doe-random-v2.json')))
+    with pytest.raises(ValueError):
+        dataset.ordered_cases(plan, order, priority)
 
 
 def test_seeded_random_plan_validity_and_ranges():
