@@ -237,17 +237,35 @@ def prepare(root, definition, plan, reset_failed=False):
     write_json(path, manifest)
 
 
+def ordered_cases(plan, order='plan', priority=()):
+    if order not in ('plan', 'holdout-first'):
+        raise ValueError('Unknown queue order')
+    ranks = {case_id: index for index, case_id in enumerate(priority)}
+    if len(ranks) != len(priority) or set(ranks)-{case['id'] for case in plan}:
+        raise ValueError('Priority cases must be distinct IDs from the selected plan')
+    return sorted(plan, key=lambda case: (0, ranks[case['id']]) if case['id'] in ranks
+                  else (1, int(case['split'] != 'holdout') if order == 'holdout-first' else 0))
+
+
 def main():
     parser = argparse.ArgumentParser(description='Resumable M0 CFD dataset; no surrogate training')
     parser.add_argument('--root', type=Path, default=DEFAULT_ROOT)
     parser.add_argument('--doe', type=Path, help='DoE definition JSON (default: doe-v1.json)')
     parser.add_argument('--workers', type=int)
+    parser.add_argument('--queue-order', choices=('plan', 'holdout-first'), default='plan',
+                        help='Submission order only; does not change projects or the manifest')
+    parser.add_argument('--priority-cases', nargs='+', default=[], metavar='ID',
+                        help='Submit these case IDs first, in the listed order')
     parser.add_argument('--status', action='store_true')
     parser.add_argument('--reset-failed', action='store_true',
                         help='Archive/reset non-accepted cases and adopt the updated controller policy, then exit')
     args = parser.parse_args()
     definition = load_definition(args.doe) if args.doe else load_definition()
     plan = cases(definition)
+    try:
+        queue = ordered_cases(plan, args.queue_order, args.priority_cases)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.status:
         print(json.dumps(summary(args.root, plan), indent=2), flush=True)
         return
@@ -267,10 +285,11 @@ def main():
         workers = args.workers if args.workers is not None else resources['capacity']
         if not 1 <= workers <= resources['capacity']:
             parser.error(f'workers must be 1..{resources["capacity"]} for this container')
-        emit(args.root, {'event': 'batch_started', 'root': str(args.root), 'workers': workers, **resources})
+        emit(args.root, {'event': 'batch_started', 'root': str(args.root), 'workers': workers,
+                         'queue_order': args.queue_order, 'priority_cases': args.priority_cases, **resources})
         with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context('spawn')) as pool:
             skip = skipped_templates()
-            futures = [pool.submit(run_case, args.root, case) for case in plan if case['template'] not in skip]
+            futures = [pool.submit(run_case, args.root, case) for case in queue if case['template'] not in skip]
             for future in as_completed(futures):
                 future.result()
                 state = summary(args.root, plan)
