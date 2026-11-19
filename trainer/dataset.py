@@ -15,6 +15,7 @@ import traceback
 from app import models
 from app.case import generate
 from app.models import Project
+from trainer import hybrid
 from trainer.doe import cases, load_definition
 
 DEFAULT_ROOT = Path('/data/datasets/v1')
@@ -41,7 +42,13 @@ def training_policy():
     budget = float(os.environ.get('TRAIN_SOLVE_BUDGET', '3600'))
     if not math.isfinite(budget) or budget <= 0:
         raise ValueError('TRAIN_SOLVE_BUDGET must be finite and positive')
-    return {'mode': 'settled', 'budget_s': budget}
+    policy = {'mode': 'settled', 'budget_s': budget}
+    if os.environ.get('THERMOSTAT_CALIBRATED_START', '0') == '1':
+        hybrid.load_power_model()
+        policy['initial_power'] = {'mode': 'hybrid-v1',
+            'model_sha256': hashlib.sha256(hybrid.power_model_path().read_bytes()).hexdigest(),
+            'features_sha256': hashlib.sha256(Path(hybrid.__file__).read_bytes()).hexdigest()}
+    return policy
 
 
 def processor_count():
