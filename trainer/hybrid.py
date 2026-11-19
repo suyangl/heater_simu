@@ -1,5 +1,8 @@
 """Shared geometry features and standardized ridge models; no solver calls."""
+import json
 import math
+import os
+from pathlib import Path
 
 import numpy as np
 
@@ -85,3 +88,23 @@ def fit(x, y, alpha):
 
 def regress(model, x):
     return (np.asarray(x)-model['mean'])/model['std']@np.asarray(model['coef'])+model['intercept']
+
+
+def power_model_path():
+    base = Path(__file__).resolve().parents[1]
+    bundled = base/'frontend/public/surrogate/hybrid-v1.json'
+    return Path(os.environ.get('THERMOSTAT_POWER_MODEL', str(bundled if bundled.exists() else base/'hybrid-v1.json')))
+
+
+def load_power_model():
+    model = json.loads(power_model_path().read_text())
+    if model.get('version') != 'hybrid-v1' or model.get('case_names') != CASE_NAMES:
+        raise ValueError('Incompatible thermostat power model')
+    power = model['power']
+    for name in ('mean', 'std', 'coef'):
+        values = np.asarray(power[name], dtype=float)
+        if values.shape != (len(CASE_NAMES),) or not np.isfinite(values).all():
+            raise ValueError('Invalid thermostat power ridge')
+    if not np.isfinite(power['intercept']) or np.any(np.asarray(power['std']) <= 0):
+        raise ValueError('Invalid thermostat power ridge')
+    return power

@@ -116,6 +116,14 @@ Current artifact: **5,312 bytes**, trained on **53 v1x template cases**, with **
 
 These scores measure template-data generalization, **not accuracy on arbitrary DIY geometry**. Random-room CFD data has not yet been included in this artifact. No solver or physics settings are changed by hybrid training.
 
+### Optional CFD-calibrated thermostat startup
+
+Set `THERMOSTAT_CALIBRATED_START=1` in the trainer or worker container to initialize the shared **settled** controller at `clamp(exp(log-k ridge) × UA × max(0, Tset−Tout), positive, rated power)`. Without it, the existing analytic start is unchanged; non-heating cases still start at zero. Both trainer and interactive settled runs share this implementation. Only the first power choice changes: physics, boundary conditions, settle gates, secant updates and acceptance are unchanged.
+
+The bundled `hybrid-v1.json` power ridge was trained on 53 accepted v1x template training cases (holdouts excluded). It uses `trainer/hybrid.py` features and is not validated for arbitrary random geometry. Rebuild the worker/trainer image after changing the artifact. Optionally set `THERMOSTAT_POWER_MODEL=/path/to/hybrid-v1.json` to use another compatible artifact; missing or malformed enabled models fail explicitly. No dataset is read at runtime. Pass these environment variables explicitly with `docker run -e` or `docker compose run -e`; Compose does not forward them automatically.
+
+Use a **new dataset root** for calibrated runs. Trainer policy records the enabled mode and model/feature-code SHA256 hashes, so changing the option or model on resume is rejected by the existing policy check. The runner change also changes the physics fingerprint. Positive demand is capped **after** calibration, not before it.
+
 ### 数据集恒温器与失败恢复
 
 训练通过同一个 worker 的 opt-in `settled` 控制模式运行；交互任务仍使用原有控制方式及 **1200 s** 默认预算。训练的 `TRAIN_SOLVE_BUDGET` 默认为 **3600 s/次**，可显式调整。不是放宽验收：均温仍须距设定 ≤0.5°C，能量误差须 **<10%**。训练先在固定 Q 下等待相邻平均窗口温度变化 ≤0.15°C 且能量误差 <5%，再更新功率，避免把仍在冷却/升温的状态误当成平衡响应。更新使用受限、0.7 阻尼的正斜率 secant；斜率无效时退回阻尼比例更新，单次变化限制 ±35%。空气 RC 时间常数 >3000 s 时使用较长的 2000/1500 次初始/后续稳定块，其他情况为 1500/1000 次；每块末 800 次测量。达到目标后固定功率再做完整 **2000 次最终平均**；若漂移或不平衡则继续稳定/控制，而不是在第一次穿过设定温度时提前终止。所有温度/热损失均来自同一平均窗口，物理 BC、源区及有限体积字典不变。

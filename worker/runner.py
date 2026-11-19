@@ -16,6 +16,7 @@ from app.foam_output import wall_heat_flux
 from app.case import control_dict, dictionary
 from app.models import Project
 from app.queue import DATA, connect, update
+from trainer.hybrid import context, load_power_model, regress
 from visualization import build_visualization
 
 
@@ -63,6 +64,20 @@ def thermostat_power(power, room_mean, project):
     if rise <= 0:
         return project.heater.power_w
     return min(project.heater.power_w, max(0., power*demand/rise))
+
+
+def initial_thermostat_power(project, settled=False):
+    thermal = project.thermal()
+    if not settled or os.environ.get('THERMOSTAT_CALIBRATED_START', '0') != '1':
+        return thermal['effective_power_w']
+    rise = project.heater.setpoint_c-project.outdoor_temp
+    if rise <= 0:
+        return 0.
+    log_k = float(regress(load_power_model(), context(project)[2]))
+    if not np.isfinite(log_k):
+        raise ValueError('Non-finite thermostat power correction')
+    log_power = np.log(thermal['ua_total']*rise)+log_k
+    return min(project.heater.power_w, float(np.exp(np.clip(log_power, np.log(np.finfo(float).tiny), np.log(project.heater.power_w)))))
 
 
 def averaged_room_mean(path):
@@ -166,7 +181,7 @@ def solve_thermostat(path, nprocs, budget=1200, settled=False, best_effort=False
             raise TimeoutError('CFD thermostat exceeded its wall-time budget')
         run(command, path, remaining)
     (path/'case.foam').touch()
-    power = project.thermal()['effective_power_w']
+    power = initial_thermostat_power(project, settled)
     loss_patches = project.loss_patches(json.loads((path/'case_meta.json').read_text()).get('patches'))
     history = []
     end = 0
