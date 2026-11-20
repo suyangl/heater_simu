@@ -98,23 +98,28 @@ Custom geometry falls back to a small browser-only physics + learned estimate wh
 Rebuild with NumPy and the API dependencies available (mount datasets read-only in Docker):
 
 ```sh
-python -m trainer.build_hybrid --root /data/datasets/v1x \
+python -m trainer.build_hybrid --root /data/datasets/v1x --root /data/datasets/random-v2b \
   --output frontend/public/surrogate/hybrid-v1.json --fixture frontend/src/hybrid-fixture.json
-python -m trainer.validate_hybrid --root /data/datasets/v1x
+python -m trainer.validate_hybrid --root /data/datasets/v1x --root /data/datasets/random-v2b
 ```
 
 Repeat `--root` to combine template and future random-v1 datasets. Only accepted cases are read; holdouts never enter training or standardization. Duplicate project payloads across roots are rejected to avoid leakage. Rebuild the parity fixture with the artifact. The target is `(T−Tout)/(Tset−Tout)` on the S1 24×20×12 grid; S1's measured-mean normalization is converted back to setpoint normalization. The baseline uses a spatially uniform training-fold mean theta and `k=1`.
 
-Current artifact: **5,312 bytes**, trained on **53 v1x template cases**, with **2 independent holdouts**. Grouped CV leaves out all training cases sharing template + heater position (random cases use one case per group). Field RMSE pools valid air points; power errors average equally over cases.
+Current artifact: **5,815 bytes**, trained on **99 cases: 53 v1x templates + 46 random-v2b training cases**, with **12 independent holdouts: 2 template + 10 random**. Failed random cases 0007, 0032, 0039 and 0041 are excluded. Grouped CV leaves out all training cases sharing template + heater position (random cases use one case per group). Field RMSE pools valid air points; power errors average equally over cases.
 
 | Evaluation | Cases | Field RMSE °C | Mean power error | Max power error |
 |---|---:|---:|---:|---:|
-| Grouped CV, hybrid | 53 | 0.1872 | 6.71% | 18.53% |
-| Grouped CV, uniform/analytic baseline | 53 | 0.7968 | 113.44% | 311.49% |
-| Holdout, hybrid | 2 | 0.1971 | 2.75% | 4.50% |
-| Holdout, uniform/analytic baseline | 2 | 0.9082 | 130.71% | 132.22% |
+| Grouped CV, overall | 99 | 0.2586 | 6.97% | 25.20% |
+| Grouped CV, template subset | 53 | 0.2095 | 6.39% | 19.38% |
+| Grouped CV, random subset | 46 | 0.3037 | 7.63% | 25.20% |
+| Grouped CV, uniform/analytic baseline | 99 | 0.8942 | 110.14% | 336.97% |
+| Random holdout, new hybrid | 10 | 0.2279 | 7.52% | 18.96% |
+| Random holdout, previous template-only hybrid | 10 | 0.3116 | 13.72% | 29.07% |
+| Combined holdout, new hybrid | 12 | 0.2210 | 7.08% | 18.96% |
 
-These scores measure template-data generalization, **not accuracy on arbitrary DIY geometry**. Random-room CFD data has not yet been included in this artifact. No solver or physics settings are changed by hybrid training.
+The previous template-only model's template CV was 0.1872°C / 6.71% mean / 18.53% max power error: the new model trades +0.0223°C template RMSE for lower random holdout errors. These scores cover sampled geometry, **not arbitrary DIY-room accuracy**. No solver or physics settings are changed by hybrid training.
+
+For old/new comparison, preserve the previous artifact and pass `--old-model /path/to/old-hybrid-v1.json` to validation. This also reports random-only CV, separate random holdouts, window-side diagnostics, and the fixed custom-room head-height regression fixture. `--quick --old-model ...` scores only the old model without fitting. JSON relative power errors are fractions. The fixed 1.6 m probes now read **19.5090°C window-side vs 19.5953°C interior** (−0.0863°C), replacing the previous +0.0698°C reversal. Window cooling is a plausibility diagnostic, not a universal physical constraint.
 
 ### Smaller random-room plans and queue ordering
 
@@ -128,7 +133,7 @@ Changing a definition/count is not supported in place, even with `--reset-failed
 
 Set `THERMOSTAT_CALIBRATED_START=1` in the trainer or worker container to initialize the shared **settled** controller at `clamp(exp(log-k ridge) × UA × max(0, Tset−Tout), positive, rated power)`. Without it, the existing analytic start is unchanged; non-heating cases still start at zero. Both trainer and interactive settled runs share this implementation. Only the first power choice changes: physics, boundary conditions, settle gates, secant updates and acceptance are unchanged.
 
-The bundled `hybrid-v1.json` power ridge was trained on 53 accepted v1x template training cases (holdouts excluded). It uses `trainer/hybrid.py` features and is not validated for arbitrary random geometry. Rebuild the worker/trainer image after changing the artifact. Optionally set `THERMOSTAT_POWER_MODEL=/path/to/hybrid-v1.json` to use another compatible artifact; missing or malformed enabled models fail explicitly. No dataset is read at runtime. Pass these environment variables explicitly with `docker run -e` or `docker compose run -e`; Compose does not forward them automatically.
+The bundled `hybrid-v1.json` power ridge was trained on 99 accepted training cases from v1x and random-v2b (holdouts excluded). It uses `trainer/hybrid.py` features; validation covers the sampled geometries, not arbitrary random geometry. Rebuild the worker/trainer image after changing the artifact. Optionally set `THERMOSTAT_POWER_MODEL=/path/to/hybrid-v1.json` to use another compatible artifact; missing or malformed enabled models fail explicitly. No dataset is read at runtime. Pass these environment variables explicitly with `docker run -e` or `docker compose run -e`; Compose does not forward them automatically.
 
 Use a **new dataset root** for calibrated runs. Trainer policy records the enabled mode and model/feature-code SHA256 hashes, so changing the option or model on resume is rejected by the existing policy check. The runner change also changes the physics fingerprint. Positive demand is capped **after** calibration, not before it.
 
