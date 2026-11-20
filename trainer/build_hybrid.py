@@ -48,7 +48,7 @@ def accepted(roots):
                 raise ValueError('Hybrid case has no valid air points')
             x = np.asarray([features(p, point, prepared) for point, keep in zip(points, valid) if keep])
             group = str(root.resolve())+':'+case['id'] if case['template'] == 'random' else case['template']+':'+case['position']
-            rows.append(dict(id=case['id'], split=case['split'], group=group, project=p.model_dump(),
+            rows.append(dict(id=case['id'], split=case['split'], group=group, random=case['template'] == 'random', project=p.model_dump(),
                              x=x, y=theta[valid]-1, c=prepared[2], k=k, delta=delta))
     return rows
 
@@ -77,7 +77,7 @@ def score(model, row, baseline_mean=None):
 def validate(rows):
     training = [r for r in rows if r['split'] == 'train']
     model = train(training)
-    cv, base_cv = [], []
+    cv, base_cv, random_cv, template_cv = [], [], [], []
     for group in sorted({r['group'] for r in training}):
         fit_rows = [r for r in training if r['group'] != group]
         if not fit_rows:
@@ -87,10 +87,15 @@ def validate(rows):
         for row in training:
             if row['group'] == group:
                 cv.append(score(fold, row))
+                if row.get('random', False):
+                    random_cv.append(cv[-1])
+                else:
+                    template_cv.append(cv[-1])
                 base_cv.append(score(fold, row, mean))
     holdout = [r for r in rows if r['split'] == 'holdout']
     mean = float(np.concatenate([r['y'] for r in training]).mean())
-    return dict(grouped_cv=metrics(cv), grouped_cv_baseline=metrics(base_cv),
+    return dict(grouped_cv=metrics(cv), grouped_cv_random=metrics(random_cv),
+                grouped_cv_template=metrics(template_cv), grouped_cv_baseline=metrics(base_cv),
                 holdout=metrics([score(model, r) for r in holdout]),
                 holdout_baseline=metrics([score(model, r, mean) for r in holdout]))
 

@@ -64,12 +64,37 @@ def test_read_only_multiroot_random_and_setpoint_normalization(tmp_path):
     assert len(rows) == 2
     assert rows[0]['group'] == 'bedroom:under_window'
     assert rows[1]['group'].endswith(':1')
+    assert rows[1]['random'] and not rows[0]['random']
     assert rows[0]['y'] == pytest.approx(np.zeros(len(rows[0]['y'])), abs=1e-6)
     assert before == {str(p): p.read_bytes() for root in roots for p in root.rglob('*') if p.is_file()}
     with pytest.raises(ValueError, match='Duplicate'):
         accepted([roots[0], roots[0]])
     write_json(roots[0]/'cases/0/metadata.json', {'status': 'pending'})
     assert accepted([roots[0]]) == []
+
+
+def test_final_comparison_and_quick_mode(monkeypatch):
+    from trainer import validate_hybrid as evaluation
+    rows = [row('a'), row('b'), row('held', 'holdout')]
+    for item in rows:
+        item.update(random=True, project=Project().model_dump())
+    old = train(rows[:2])
+    old['grid'] = dict(nx=24, ny=20, nz=12)
+    report = evaluation.comparison(rows, old)
+    assert report['validation']['grouped_cv_random']['cases'] == 2
+    assert report['old']['holdout']['cases'] == report['new']['holdout']['cases'] == 1
+    assert report['new']['window_cooling']['pairs'] > 0
+    reading = report['old']['window_cooling']['readings'][0]
+    assert reading['side_minus_interior_c'] == pytest.approx(reading['side_c']-reading['interior_c'])
+    monkeypatch.setattr(evaluation, 'train', lambda _: pytest.fail('quick mode must not train'))
+    monkeypatch.setattr(evaluation, 'validate', lambda _: pytest.fail('quick mode must not run CV'))
+    assert 'new' not in evaluation.comparison(rows, old, quick=True)
+    assert evaluation.comparison([], old, quick=True)['old']['holdout']['cases'] == 0
+    assert evaluation.window_readings(old, [])['pairs'] == 0
+    rows[0]['project']['openings'] = []
+    assert evaluation.window_readings(old, rows[:1])['pairs'] == 0
+    with pytest.raises(KeyError):
+        evaluation.comparison(rows, {}, quick=True)
 
 
 def test_parity_fixture_generated_by_python():
